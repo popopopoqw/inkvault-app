@@ -38,6 +38,12 @@ npm run deploy
 
 打开 Workers 分配的域名，首次访问设置密码即可使用。
 
+## 桌面客户端
+
+`src-tauri/` 是桌面端（macOS、Windows），作为你部署的服务地址的壳：首启动填一次服务地址，之后打开即用，加密流程与网页版相同。
+
+打包推送 tag 触发（如 `v0.1.0`），GitHub Actions 用 tauri-action 构建三个产物（Apple Silicon dmg、Intel dmg、Windows nsis 安装包，约 5MB），进入 Releases 草稿。应用未做代码签名：macOS 首次打开右键选"打开"，Windows 遇 SmartScreen 选"仍要运行"。
+
 ## 目录结构
 
 ```
