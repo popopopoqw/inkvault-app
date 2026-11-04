@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { childrenOf, isDescendant, sortKeyBetween, useStore } from '../store/app';
 import type { DecryptedDoc } from '../lib/types';
+import { IconDoc, IconFolder, IconFolderOpen, IconFolderPlus, IconPlus, IconPencil, IconTrash, IconChevronDown, IconChevronRight } from './Icons';
 
 type DropPos = 'before' | 'after' | 'into';
 
@@ -17,10 +18,10 @@ export function FileTree() {
         <span className="filetree-title">文档库</span>
         <span className="filetree-actions">
           <button title="新建文档" onClick={() => void createNode(null, false)}>
-            ＋📄
+            <IconPlus />
           </button>
           <button title="新建文件夹" onClick={() => void createNode(null, true)}>
-            ＋📁
+            <IconFolderPlus />
           </button>
         </span>
       </div>
@@ -149,8 +150,8 @@ function TreeNode({
         onDrop={handleDrop}
         onClick={() => (isFolder ? toggleFolder(doc.id) : selectDoc(doc.id))}
       >
-        {isFolder ? <span className="tree-caret">{isOpen ? '▾' : '▸'}</span> : <span className="tree-caret-leaf" />}
-        <span className="tree-icon">{isFolder ? (isOpen ? '📂' : '📁') : '📄'}</span>
+        {isFolder ? <span className="tree-caret">{isOpen ? <IconChevronDown /> : <IconChevronRight />}</span> : <span className="tree-caret-leaf" />}
+        <span className="tree-icon">{isFolder ? (isOpen ? <IconFolderOpen /> : <IconFolder />) : <IconDoc />}</span>
         {renaming ? (
           <input
             className="tree-rename"
@@ -173,10 +174,10 @@ function TreeNode({
           {isFolder && (
             <>
               <button title="新建子文档" onClick={() => void createNode(doc.id, false)}>
-                ＋
+                <IconPlus />
               </button>
               <button title="新建子文件夹" onClick={() => void createNode(doc.id, true)}>
-                ▣
+                <IconFolderPlus />
               </button>
             </>
           )}
@@ -187,10 +188,10 @@ function TreeNode({
               setRenaming(true);
             }}
           >
-            ✎
+            <IconPencil />
           </button>
           <button title="删除" onClick={confirmDelete}>
-            🗑
+            <IconTrash />
           </button>
         </span>
       </div>

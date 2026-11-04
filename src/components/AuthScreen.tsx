@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useStore } from '../store/app';
+import { Logo } from './Icons';
 
 function passwordScore(pw: string): number {
   if (pw.length < 8) return 0;
@@ -38,9 +39,12 @@ export function AuthScreen({ mode }: { mode: 'setup' | 'login' }) {
   return (
     <div className="auth-wrap">
       <form className="auth-card" onSubmit={onSubmit}>
-        <div className="auth-logo">✍️</div>
-        <h1>Markdown 编辑器</h1>
-        <p className="auth-sub">
+        <div className="auth-logo">
+          <Logo size={56} />
+        </div>
+        <h1>墨匣</h1>
+        <p className="auth-sub">InkVault · 端到端加密的 Markdown 笔记</p>
+        <p className="auth-hint subtle">
           {isSetup ? '首次使用，请设置一个强密码' : '输入密码解锁你的加密文档库'}
         </p>
 

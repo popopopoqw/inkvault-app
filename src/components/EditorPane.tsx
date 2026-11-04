@@ -1,10 +1,12 @@
 import { useMemo, useRef } from 'react';
+import type { ReactNode } from 'react';
 import CodeMirror, { EditorSelection, EditorView, Prec, keymap } from '@uiw/react-codemirror';
 import { markdown } from '@codemirror/lang-markdown';
 import { languages } from '@codemirror/language-data';
 import { livePreviewPlugin } from '../lib/livePreview';
 import { findImageFile, insertImageFile } from '../lib/assets';
 import { useStore } from '../store/app';
+import { IconLink, IconQuote, IconList, IconTask, IconTable, IconCode, IconCodeInline, IconImage } from './Icons';
 
 function wrapSelection(view: EditorView, before: string, after: string) {
   const { state } = view;
@@ -70,6 +72,7 @@ const CODE_SNIPPET = '```ts\n\n```';
 interface Tool {
   label: string;
   title: string;
+  icon?: ReactNode;
   run: (view: EditorView) => void;
 }
 
@@ -79,14 +82,14 @@ const TOOLS: Tool[] = [
   { label: 'H3', title: '三级标题', run: (v) => toggleLinePrefix(v, '### ') },
   { label: 'B', title: '粗体 (Cmd/Ctrl+B)', run: (v) => wrapSelection(v, '**', '**') },
   { label: 'I', title: '斜体 (Cmd/Ctrl+I)', run: (v) => wrapSelection(v, '*', '*') },
-  { label: '‹/›', title: '行内代码', run: (v) => wrapSelection(v, '`', '`') },
-  { label: '🔗', title: '链接 (Cmd/Ctrl+K)', run: (v) => wrapSelection(v, '[', '](https://)') },
-  { label: '❝', title: '引用', run: (v) => toggleLinePrefix(v, '> ') },
-  { label: '•', title: '无序列表', run: (v) => toggleLinePrefix(v, '- ') },
+  { label: '', title: '行内代码', icon: <IconCodeInline />, run: (v) => wrapSelection(v, '`', '`') },
+  { label: '', title: '链接 (Cmd/Ctrl+K)', icon: <IconLink />, run: (v) => wrapSelection(v, '[', '](https://)') },
+  { label: '', title: '引用', icon: <IconQuote />, run: (v) => toggleLinePrefix(v, '> ') },
+  { label: '', title: '无序列表', icon: <IconList />, run: (v) => toggleLinePrefix(v, '- ') },
   { label: '1.', title: '有序列表', run: (v) => toggleLinePrefix(v, '1. ') },
-  { label: '☑', title: '任务列表', run: (v) => toggleLinePrefix(v, '- [ ] ') },
-  { label: '▦', title: '表格', run: (v) => insertBlock(v, TABLE_SNIPPET) },
-  { label: '{ }', title: '代码块', run: (v) => insertBlock(v, CODE_SNIPPET) },
+  { label: '', title: '任务列表', icon: <IconTask />, run: (v) => toggleLinePrefix(v, '- [ ] ') },
+  { label: '', title: '表格', icon: <IconTable />, run: (v) => insertBlock(v, TABLE_SNIPPET) },
+  { label: '', title: '代码块', icon: <IconCode />, run: (v) => insertBlock(v, CODE_SNIPPET) },
 ];
 
 export function EditorPane({
@@ -138,7 +141,7 @@ export function EditorPane({
       <div className="editor-toolbar">
         {TOOLS.map((t) => (
           <button key={t.title} title={t.title} onMouseDown={(e) => e.preventDefault()} onClick={() => viewRef.current && t.run(viewRef.current)}>
-            {t.label}
+            {t.icon ?? t.label}
           </button>
         ))}
         <button
@@ -146,7 +149,7 @@ export function EditorPane({
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => fileInputRef.current?.click()}
         >
-          🖼
+          <IconImage />
         </button>
         <input
           ref={fileInputRef}
