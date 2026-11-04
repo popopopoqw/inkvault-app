@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "InkVault",
+  "productName": "墨匣",
   "version": "0.1.0",
   "identifier": "com.inkvault.app",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "墨匣 InkVault",
+        "title": "墨匣",
         "url": "index.html",
         "width": 1280,
         "height": 800,
@@ -24,7 +24,7 @@
       "csp": null,
       "assetProtocol": {
         "enable": true,
-        "scope": ["$HOME/InkVault/.assets/**"]
+        "scope": ["$HOME/墨匣/.assets/**"]
       }
     }
   },

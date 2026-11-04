@@ -263,7 +263,7 @@ export const useStore = create<AppState>()((set, get) => ({
 
 const WELCOME_CONTENT = `# 欢迎使用墨匣
 
-笔记以 Markdown 文件保存在本机 \`InkVault\` 文件夹（用户主目录下），不联网、不上传，文件树就是真实的文件夹结构。
+笔记以 Markdown 文件保存在本机 \`墨匣\` 文件夹（用户主目录下），不联网、不上传，文件树就是真实的文件夹结构。
 
 ## 常用能力
 

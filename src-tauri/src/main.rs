@@ -7,8 +7,8 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::Manager;
 
-/// 笔记库根目录：~/InkVault。文档就是磁盘上的 .md 文件，图片在 .assets/ 下。
-const VAULT_DIR: &str = "InkVault";
+/// 笔记库根目录：~/墨匣。文档就是磁盘上的 .md 文件，图片在 .assets/ 下。
+const VAULT_DIR: &str = "墨匣";
 const ASSETS_DIR: &str = ".assets";
 
 #[derive(Serialize, Clone)]

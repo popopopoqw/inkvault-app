@@ -1,6 +1,6 @@
-# 墨匣 InkVault
+# 墨匣
 
-本地 Markdown 笔记应用（macOS / Windows），不联网、不上传。笔记以 Markdown 文件保存在用户主目录的 `InkVault` 文件夹，文件树就是真实的文件夹结构，图片存在 `InkVault/.assets/`。
+本地 Markdown 笔记应用（macOS / Windows），不联网、不上传。笔记以 Markdown 文件保存在用户主目录的 `墨匣` 文件夹，文件树就是真实的文件夹结构，图片存在 `墨匣/.assets/`。
 
 ![界面截图](docs/screenshot.png)
 
@@ -14,7 +14,7 @@
 
 ## 技术栈
 
-Tauri 2（Rust）+ React 18 + TypeScript + Vite，CodeMirror 6，markdown-it + highlight.js，zustand。Rust 端只提供本地文件命令，路径全部校验必须落在 InkVault 目录内。
+Tauri 2（Rust）+ React 18 + TypeScript + Vite，CodeMirror 6，markdown-it + highlight.js，zustand。Rust 端只提供本地文件命令，路径全部校验必须落在墨匣文件夹内。
 
 ## 开发
 

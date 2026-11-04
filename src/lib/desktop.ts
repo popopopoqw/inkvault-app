@@ -2,7 +2,7 @@ import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import type { DecryptedDoc } from './types';
 
 /**
- * 桌面端（Tauri）本地文件后端：文档是 ~/InkVault 下的 .md 文件，
+ * 桌面端（Tauri）本地文件后端：文档是 ~/墨匣 下的 .md 文件，
  * 文件树即目录结构，图片在 .assets/ 下。无网络请求。
  * doc.id 就是文件绝对路径。
  */

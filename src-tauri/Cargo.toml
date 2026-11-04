@@ -1,7 +1,7 @@
 [package]
 name = "inkvault"
 version = "0.1.0"
-description = "墨匣 InkVault 桌面客户端"
+description = "墨匣桌面客户端（本地 Markdown 笔记）"
 edition = "2021"
 
 [build-dependencies]
