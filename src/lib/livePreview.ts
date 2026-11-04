@@ -4,8 +4,9 @@ import { Decoration, DecorationSet, EditorView, ViewPlugin, ViewUpdate, WidgetTy
 import { resolveAssetUrl } from './assets';
 
 /**
- * Typora 式即时渲染：基于 markdown 语法树，对非光标行隐藏语法标记并应用渲染样式；
- * 光标所在行回退为 markdown 源码，便于修改。整行图片直接显示解密后的图片。
+ * Typora 式即时渲染：基于 markdown 语法树隐藏语法标记并应用渲染样式。
+ * 光标所在的行同样保持渲染；仅当光标紧贴某个语法标记（如 #、**）时，
+ * 该标记才临时显示源码，便于编辑。整行独占的图片/围栏/任务列表仍按行判断。
  */
 
 const hide = Decoration.replace({});
@@ -76,9 +77,10 @@ function buildDecorations(view: EditorView): DecorationSet {
   const cursorLines = selectionLines(state);
   const ranges: Range<Decoration>[] = [];
 
+  // 行内语法标记：光标紧邻或处于标记内时显示源码，否则隐藏（保持渲染态）
   const hideIfNoCursor = (from: number, to: number) => {
-    const line = state.doc.lineAt(from);
-    if (!cursorLines.has(line.number) && to > from) ranges.push(hide.range(from, to));
+    const nearCursor = state.selection.ranges.some((r) => r.head >= from - 1 && r.head <= to + 1);
+    if (!nearCursor && to > from) ranges.push(hide.range(from, to));
   };
 
   syntaxTree(state).iterate({
@@ -94,7 +96,11 @@ function buildDecorations(view: EditorView): DecorationSet {
           const line = state.doc.lineAt(node.from);
           if (line.from === node.from) ranges.push(lineDeco(`cm-md-h${level}`).range(line.from));
           const mark = node.node.firstChild;
-          if (mark && mark.name === 'HeaderMark') hideIfNoCursor(mark.from, mark.to);
+          if (mark && mark.name === 'HeaderMark') {
+            // 连同 # 后的空格一起隐藏，避免渲染态标题前残留空白
+            const markEnd = state.sliceDoc(mark.to, mark.to + 1) === ' ' ? mark.to + 1 : mark.to;
+            hideIfNoCursor(mark.from, markEnd);
+          }
           break;
         }
         case 'StrongEmphasis':
