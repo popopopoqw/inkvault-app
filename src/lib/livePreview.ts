@@ -4,7 +4,7 @@ import { Decoration, DecorationSet, EditorView, ViewPlugin, ViewUpdate, WidgetTy
 import { resolveAssetUrl } from './assets';
 
 /**
- * Typora 式即时渲染：基于 markdown 语法树隐藏语法标记并应用渲染样式。
+ * 所见即所得渲染：基于 markdown 语法树隐藏语法标记并应用渲染样式。
  * 光标所在的行同样保持渲染；仅当光标紧贴某个语法标记（如 #、**）时，
  * 该标记才临时显示源码，便于编辑。整行独占的图片/围栏/任务列表仍按行判断。
  */
