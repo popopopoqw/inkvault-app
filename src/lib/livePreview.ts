@@ -1,10 +1,11 @@
 import { syntaxTree } from '@codemirror/language';
 import { Range } from '@codemirror/state';
 import { Decoration, DecorationSet, EditorView, ViewPlugin, ViewUpdate, WidgetType } from '@codemirror/view';
+import { resolveAssetUrl } from './assets';
 
 /**
  * Typora 式即时渲染：基于 markdown 语法树，对非光标行隐藏语法标记并应用渲染样式；
- * 光标所在行回退为 markdown 源码，便于修改。
+ * 光标所在行回退为 markdown 源码，便于修改。整行图片直接显示解密后的图片。
  */
 
 const hide = Decoration.replace({});
@@ -29,6 +30,35 @@ class CheckboxWidget extends WidgetType {
     input.setAttribute('disabled', '');
     if (this.checked) input.setAttribute('checked', '');
     return input;
+  }
+  ignoreEvent() {
+    return false;
+  }
+}
+
+// 整行独占的附件图片：直接渲染解密后的图
+class ImageWidget extends WidgetType {
+  constructor(private assetId: string, private alt: string) {
+    super();
+  }
+  eq(other: ImageWidget) {
+    return other.assetId === this.assetId && other.alt === this.alt;
+  }
+  toDOM() {
+    const wrap = document.createElement('span');
+    wrap.className = 'cm-md-image';
+    const img = document.createElement('img');
+    img.alt = this.alt;
+    img.src = 'data:image/gif;base64,R0lGODlhAQABAAAAACw='; // 1px 占位，保持布局
+    wrap.appendChild(img);
+    void resolveAssetUrl(this.assetId)
+      .then((url) => {
+        img.src = url;
+      })
+      .catch(() => {
+        wrap.textContent = `🖼 ${this.alt}（加载失败）`;
+      });
+    return wrap;
   }
   ignoreEvent() {
     return false;
@@ -137,6 +167,21 @@ function buildDecorations(view: EditorView): DecorationSet {
           const isImage = node.name === 'Image';
           const start = isImage ? node.from + 1 : node.from;
           const text = state.sliceDoc(start, node.to);
+
+          // 整行独占的附件图片：直接显示真图
+          if (isImage) {
+            const imgMatch = /^!\[([^\]]*)\]\(asset:([a-f0-9]{1,64})\)$/.exec(state.sliceDoc(node.from, node.to));
+            if (imgMatch) {
+              const line = state.doc.lineAt(node.from);
+              if (line.text.trim() === state.sliceDoc(node.from, node.to) && !cursorLines.has(line.number)) {
+                ranges.push(
+                  Decoration.replace({ widget: new ImageWidget(imgMatch[2], imgMatch[1]) }).range(node.from, node.to)
+                );
+                break;
+              }
+            }
+          }
+
           const closeIdx = text.indexOf(']');
           if (!text.startsWith('[') || closeIdx < 0) break;
           if (!/^\]\(/.test(text.slice(closeIdx))) break; // 无 (url) 目标，非行内链接

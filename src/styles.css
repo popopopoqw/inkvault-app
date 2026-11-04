@@ -194,6 +194,7 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(37, 99, 23
 }
 .editor-cm .cm-line.cm-md-fence { line-height: 8px; min-height: 8px; }
 .editor-cm .cm-content input[type='checkbox'] { margin-right: 8px; pointer-events: none; }
+.editor-cm .cm-md-image img { max-width: 100%; border-radius: var(--radius); display: block; margin: 4px 0; }
 
 .preview-scroll { flex: 1; overflow-y: auto; min-width: 0; }
 

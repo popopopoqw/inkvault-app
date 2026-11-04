@@ -3,6 +3,7 @@ import CodeMirror, { EditorSelection, EditorView, Prec, keymap } from '@uiw/reac
 import { markdown } from '@codemirror/lang-markdown';
 import { languages } from '@codemirror/language-data';
 import { livePreviewPlugin } from '../lib/livePreview';
+import { findImageFile, insertImageFile } from '../lib/assets';
 import { useStore } from '../store/app';
 
 function wrapSelection(view: EditorView, before: string, after: string) {
@@ -98,11 +99,29 @@ export function EditorPane({
   onReady: (view: EditorView) => void;
 }) {
   const viewRef = useRef<EditorView | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const extensions = useMemo(
     () => [
       markdown({ codeLanguages: languages }),
       livePreviewPlugin,
+      EditorView.domEventHandlers({
+        // 粘贴截图 / 拖拽图片文件 → 压缩加密上传后插入
+        paste(event, view) {
+          const file = findImageFile(event.clipboardData);
+          if (!file) return false;
+          event.preventDefault();
+          void insertImageFile(view, file);
+          return true;
+        },
+        drop(event, view) {
+          const file = findImageFile(event.dataTransfer);
+          if (!file) return false;
+          event.preventDefault();
+          void insertImageFile(view, file);
+          return true;
+        },
+      }),
       Prec.highest(
         keymap.of([
           { key: 'Mod-b', run: (v) => (wrapSelection(v, '**', '**'), true) },
@@ -122,6 +141,24 @@ export function EditorPane({
             {t.label}
           </button>
         ))}
+        <button
+          title="插入图片（也可直接粘贴截图或拖拽图片文件）"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => fileInputRef.current?.click()}
+        >
+          🖼
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          hidden
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            e.target.value = '';
+            if (file && viewRef.current) void insertImageFile(viewRef.current, file);
+          }}
+        />
       </div>
       <div className="editor-cm">
         <CodeMirror

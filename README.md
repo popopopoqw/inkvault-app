@@ -5,6 +5,7 @@
 ## 特性
 
 - **所见即所得编辑**：基于 CodeMirror 6 语法树装饰，标题/加粗/斜体/代码/引用/链接/任务列表在编辑框内直接渲染；光标所在行回退为源码，便于修改
+- **图片支持**：粘贴截图 / 拖拽图片文件 / 工具栏按钮三种插入方式；客户端自动压缩（最长边 1600px、JPEG 82%，SVG/GIF 原样保留，原图上限 8MB）后加密存储，编辑框与预览中直接显示（`![名称](asset:<id>)` 引用，同样端到端加密）
 - **文件树**：文件夹/文档层级，新建、行内重命名、删除（带确认）、拖拽移动与排序
 - **大纲目录（TOC）**：从源码实时提取标题，点击跳转（编辑模式定位到源码行，预览模式滚动到锚点），随滚动高亮
 - **三种视图**：即时渲染（默认）/ 分屏同步滚动 / 纯预览阅读
@@ -52,13 +53,14 @@ npm run deploy
 
 ```
 src/
-├── worker/index.ts      # Hono API：认证、会话、文档密文 CRUD（乐观锁 + 递归删除）
+├── worker/index.ts      # Hono API：认证、会话、文档/图片密文 CRUD（乐观锁 + 递归删除）
 ├── lib/
 │   ├── crypto.ts        # PBKDF2 派生 + AES-256-GCM 加解密（WebCrypto）
-│   ├── livePreview.ts   # CodeMirror 即时渲染装饰插件
+│   ├── livePreview.ts   # CodeMirror 即时渲染装饰插件（含块级图片 widget）
+│   ├── assets.ts        # 图片压缩、加密上传、按需解密成 blob URL（带缓存）
 │   ├── markdown.ts      # markdown-it 渲染 + 源码大纲提取
 │   └── api.ts           # fetch 封装（自动携带会话）
 ├── store/app.ts         # zustand：认证流程、文档树、自动保存调度
 └── components/          # AuthScreen / FileTree / EditorPane / Preview(+TocPanel)
-migrations/0001_init.sql # D1 表结构
+migrations/              # D1 表结构（0001 初始 + 0002 图片附件）
 ```

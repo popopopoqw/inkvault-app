@@ -24,7 +24,7 @@ export function randomHex(bytes: number): string {
   return [...buf].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-function toBase64(bytes: Uint8Array): string {
+export function toBase64(bytes: Uint8Array): string {
   let binary = '';
   const CHUNK = 0x8000;
   for (let i = 0; i < bytes.length; i += CHUNK) {
@@ -33,7 +33,7 @@ function toBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-function fromBase64(b64: string): Uint8Array<ArrayBuffer> {
+export function fromBase64(b64: string): Uint8Array<ArrayBuffer> {
   const binary = atob(b64);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
@@ -67,14 +67,18 @@ export async function deriveEncKey(password: string, encSaltHex: string): Promis
   return crypto.subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
 }
 
-export async function encryptDoc(key: CryptoKey, payload: DocPayload): Promise<{ cipher: string; nonce: string }> {
+export async function encryptValue<T>(key: CryptoKey, value: T): Promise<{ cipher: string; nonce: string }> {
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const data = new TextEncoder().encode(JSON.stringify(payload));
+  const data = new TextEncoder().encode(JSON.stringify(value));
   const buf = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, data);
   return { cipher: toBase64(new Uint8Array(buf)), nonce: [...iv].map((b) => b.toString(16).padStart(2, '0')).join('') };
 }
 
-export async function decryptDoc(key: CryptoKey, cipher: string, nonce: string): Promise<DocPayload> {
+export async function decryptValue<T>(key: CryptoKey, cipher: string, nonce: string): Promise<T> {
   const buf = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: hexToBytes(nonce) }, key, fromBase64(cipher));
-  return JSON.parse(new TextDecoder().decode(buf)) as DocPayload;
+  return JSON.parse(new TextDecoder().decode(buf)) as T;
 }
+
+// 文档载荷的加解密（encryptValue 的特化别名，保留调用点语义清晰）
+export const encryptDoc = (key: CryptoKey, payload: DocPayload) => encryptValue(key, payload);
+export const decryptDoc = (key: CryptoKey, cipher: string, nonce: string) => decryptValue<DocPayload>(key, cipher, nonce);

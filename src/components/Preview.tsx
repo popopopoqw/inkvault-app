@@ -1,5 +1,6 @@
 import { useDeferredValue, useEffect, useMemo } from 'react';
 import { renderMarkdown } from '../lib/markdown';
+import { resolveAssetUrl } from '../lib/assets';
 import type { HeadingInfo } from '../lib/markdown';
 
 export function Preview({
@@ -14,6 +15,23 @@ export function Preview({
   // 大文档输入时让编辑保持流畅：渲染可以晚一拍
   const deferred = useDeferredValue(content);
   const result = useMemo(() => renderMarkdown(deferred), [deferred]);
+
+  // 附件图片：渲染挂载后在真实 DOM 上把 asset:<id> 换成解密后的 blob URL
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.querySelectorAll<HTMLImageElement>('img[src^="asset:"]').forEach((img) => {
+      const id = (img.getAttribute('src') ?? '').slice('asset:'.length);
+      if (!/^[a-f0-9]{1,64}$/.test(id)) return;
+      void resolveAssetUrl(id)
+        .then((url) => {
+          img.src = url;
+        })
+        .catch(() => {
+          img.alt = `${img.alt || '图片'}（加载失败）`;
+        });
+    });
+  }, [result.html, scrollRef]);
 
   // 纯预览模式下，随滚动高亮当前所在标题（按索引与源码大纲对齐）
   useEffect(() => {

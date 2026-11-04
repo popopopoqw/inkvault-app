@@ -171,6 +171,35 @@ api.get('/state', async (c) => {
   return c.json({ docs: await fetchAllDocs(c.env.DB) });
 });
 
+// 图片附件：客户端加密后上传密文，幂等（重试安全）
+api.put('/assets/:id', async (c) => {
+  const denied = await requireSession(c);
+  if (denied) return denied;
+  const id = c.req.param('id');
+  if (!/^[a-f0-9]{1,64}$/.test(id)) return c.json({ error: 'bad_id' }, 400);
+  const body = await c.req.json<{ cipher?: string; nonce?: string }>().catch(() => null);
+  if (!body?.cipher || !body.nonce || body.cipher.length > MAX_CIPHER_CHARS || body.nonce.length > 64) {
+    return c.json({ error: 'bad_request' }, 400);
+  }
+  await c.env.DB
+    .prepare('INSERT INTO assets (id, cipher, nonce, created_at) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO NOTHING')
+    .bind(id, body.cipher, body.nonce, nowIso())
+    .run();
+  return c.json({ ok: true });
+});
+
+api.get('/assets/:id', async (c) => {
+  const denied = await requireSession(c);
+  if (denied) return denied;
+  const id = c.req.param('id');
+  const row = await c.env.DB
+    .prepare('SELECT cipher, nonce FROM assets WHERE id = ?')
+    .bind(id)
+    .first<{ cipher: string; nonce: string }>();
+  if (!row) return c.json({ error: 'not_found' }, 404);
+  return c.json(row);
+});
+
 api.post('/docs/sync', async (c) => {
   const denied = await requireSession(c);
   if (denied) return denied;
