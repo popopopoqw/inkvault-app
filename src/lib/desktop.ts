@@ -3,11 +3,9 @@ import type { DecryptedDoc } from './types';
 
 /**
  * 桌面端（Tauri）本地文件后端：文档是 ~/InkVault 下的 .md 文件，
- * 文件树即目录结构，图片在 .assets/ 下。无登录、无网络请求。
- * 桌面模式下 doc.id 就是文件绝对路径。
+ * 文件树即目录结构，图片在 .assets/ 下。无网络请求。
+ * doc.id 就是文件绝对路径。
  */
-
-export const isDesktop = '__TAURI_INTERNALS__' in window;
 
 interface FsNode {
   path: string;
@@ -51,8 +49,6 @@ export async function desktopListDocs(): Promise<Record<string, DecryptedDoc>> {
       id: n.path,
       parentId: parentOf(n.path) === root ? null : parentOf(n.path),
       isFolder: n.is_folder,
-      sortKey: 0,
-      version: 0,
       title: n.is_folder ? baseName(n.path) : isMdTitle(n.path),
       content,
     };
@@ -70,8 +66,6 @@ export async function desktopCreateNode(parentId: string | null, isFolder: boole
     id: node.path,
     parentId: parentOf(node.path),
     isFolder: node.is_folder,
-    sortKey: 0,
-    version: 0,
     title: node.is_folder ? baseName(node.path) : isMdTitle(node.path),
     content: '',
   };

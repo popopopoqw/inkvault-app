@@ -77,14 +77,6 @@ export const IconEye = (p: SVGProps<SVGSVGElement>) => (
   </Icon>
 );
 
-export const IconLogout = (p: SVGProps<SVGSVGElement>) => (
-  <Icon {...p}>
-    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-    <path d="m16 17 5-5-5-5" />
-    <path d="M21 12H9" />
-  </Icon>
-);
-
 export const IconChevronRight = (p: SVGProps<SVGSVGElement>) => (
   <Icon {...p}>
     <path d="m9 18 6-6-6-6" />

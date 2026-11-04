@@ -1,13 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { EditorView } from '@uiw/react-codemirror';
 import { useStore } from './store/app';
-import { AuthScreen } from './components/AuthScreen';
 import { FileTree } from './components/FileTree';
 import { EditorPane } from './components/EditorPane';
 import { Preview, TocPanel } from './components/Preview';
 import { extractHeadings } from './lib/markdown';
-import { isDesktop } from './lib/desktop';
-import { Logo, IconEye, IconLogout } from './components/Icons';
+import { Logo, IconEye } from './components/Icons';
 
 type ViewMode = 'edit' | 'preview';
 
@@ -15,7 +13,6 @@ const SAVE_LABEL: Record<string, string> = {
   saving: '保存中…',
   saved: '✓ 已保存',
   error: '⚠ 保存失败',
-  conflict: '⟳ 已同步最新',
 };
 
 export default function App() {
@@ -29,12 +26,12 @@ export default function App() {
   if (phase === 'boot') {
     return (
       <div className="screen-center">
+        <Logo size={48} />
         <p>{bootError ?? '加载中…'}</p>
         {bootError && <button onClick={() => void useStore.getState().boot()}>重试</button>}
       </div>
     );
   }
-  if (phase === 'setup' || phase === 'login') return <AuthScreen mode={phase} />;
   return <Workspace />;
 }
 
@@ -43,7 +40,6 @@ function Workspace() {
   const activeId = useStore((s) => s.activeId);
   const saveState = useStore((s) => s.saveState);
   const toast = useStore((s) => s.toast);
-  const logout = useStore((s) => s.logout);
 
   const activeDoc = activeId ? docs[activeId] : undefined;
   const [viewMode, setViewMode] = useState<ViewMode>('edit');
@@ -107,7 +103,7 @@ function Workspace() {
     };
   }, [editorScrollEl, headings, viewMode, activeId]);
 
-  // 离开页面前把未保存内容落库
+  // 离开页面前把未保存内容落盘
   useEffect(() => {
     const flush = () => void useStore.getState().flush();
     window.addEventListener('beforeunload', flush);
@@ -136,11 +132,6 @@ function Workspace() {
             <IconEye />
             <span>{viewMode === 'preview' ? '编辑' : '预览'}</span>
           </button>
-          {!isDesktop && (
-            <button className="icon-toggle" title="登出" onClick={() => void logout()}>
-              <IconLogout />
-            </button>
-          )}
         </div>
       </header>
 

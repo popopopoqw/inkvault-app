@@ -1,24 +1,23 @@
 import { EditorView } from '@uiw/react-codemirror';
-import { api } from './api';
-import { currentKey, decryptValue, encryptValue, fromBase64, randomHex, toBase64 } from './crypto';
-import { desktopAssetUrl, desktopSaveAsset, isDesktop } from './desktop';
+import { desktopAssetUrl, desktopSaveAsset } from './desktop';
+import { fromBase64, toBase64 } from './base64';
 import { useStore } from '../store/app';
 
 /**
- * 图片附件：客户端压缩 → 加密上传 D1 → markdown 以 `![alt](asset:<id>)` 引用。
- * 加载时按需拉取密文、解密成 blob URL（带缓存）。
+ * 图片附件：粘贴/拖拽/工具栏插入 → 客户端压缩 → 写入本地 .assets/ 文件夹。
+ * markdown 以 ![alt](asset:<id>) 引用，渲染时经 asset 协议直接读本地文件。
  */
 
 const MAX_EDGE = 1600;
 const JPEG_QUALITY = 0.82;
 const MAX_RAW_BYTES = 8 * 1024 * 1024; // 原图上限 8MB
 
-interface AssetPayload {
+interface CompressedImage {
   mime: string;
   data: string; // base64 原始字节
 }
 
-export async function compressImage(file: File): Promise<AssetPayload> {
+export async function compressImage(file: File): Promise<CompressedImage> {
   if (file.size > MAX_RAW_BYTES) throw new Error('图片超过 8MB');
 
   // SVG / GIF 保留原样（避免破坏矢量与动画），小体积直存
@@ -41,24 +40,14 @@ export async function compressImage(file: File): Promise<AssetPayload> {
   return { mime: 'image/jpeg', data: toBase64(new Uint8Array(await blob.arrayBuffer())) };
 }
 
-// asset id → blob URL（云端）或 asset:// URL（桌面本地文件）
+// asset id → asset:// URL（本地文件）
 const urlCache = new Map<string, string>();
 
 export async function resolveAssetUrl(id: string): Promise<string> {
   if (!/^[A-Za-z0-9._-]{1,80}$/.test(id)) throw new Error('bad id');
   const cached = urlCache.get(id);
   if (cached) return cached;
-  if (isDesktop) {
-    const url = await desktopAssetUrl(id);
-    urlCache.set(id, url);
-    return url;
-  }
-  const key = currentKey();
-  if (!key) throw new Error('未解锁');
-  const { cipher, nonce } = await api<{ cipher: string; nonce: string }>(`/assets/${id}`);
-  const payload = await decryptValue<AssetPayload>(key, cipher, nonce);
-  const blob = new Blob([fromBase64(payload.data)], { type: payload.mime });
-  const url = URL.createObjectURL(blob);
+  const url = await desktopAssetUrl(id);
   urlCache.set(id, url);
   return url;
 }
@@ -69,17 +58,8 @@ export async function insertImageFile(view: EditorView, file: File): Promise<voi
   store.showToast('图片处理中…');
   try {
     const payload = await compressImage(file);
-    let assetId: string;
-    if (isDesktop) {
-      const ext = payload.mime.split('/')[1]?.replace('jpeg', 'jpg').replace('svg+xml', 'svg') ?? 'png';
-      assetId = await desktopSaveAsset(fromBase64(payload.data), ext);
-    } else {
-      const key = currentKey();
-      if (!key) throw new Error('未解锁');
-      assetId = randomHex(16);
-      const { cipher, nonce } = await encryptValue(key, payload);
-      await api(`/assets/${assetId}`, { method: 'PUT', body: { cipher, nonce } });
-    }
+    const ext = payload.mime.split('/')[1]?.replace('jpeg', 'jpg').replace('svg+xml', 'svg') ?? 'png';
+    const assetId = await desktopSaveAsset(fromBase64(payload.data), ext);
     const name = (file.name || '图片').replace(/\.[^.]*$/, '').slice(0, 40) || '图片';
     const insert = `\n\n![${name}](asset:${assetId})\n\n`;
     const pos = view.state.selection.main.head;
