@@ -13,7 +13,7 @@
     "windows": [
       {
         "title": "墨匣 InkVault",
-        "url": "desktop-entry.html",
+        "url": "index.html",
         "width": 1280,
         "height": 800,
         "minWidth": 720,
@@ -21,7 +21,11 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["$HOME/InkVault/.assets/**"]
+      }
     }
   },
   "bundle": {

@@ -6,6 +6,7 @@ import { FileTree } from './components/FileTree';
 import { EditorPane } from './components/EditorPane';
 import { Preview, TocPanel } from './components/Preview';
 import { extractHeadings } from './lib/markdown';
+import { isDesktop } from './lib/desktop';
 import { Logo, IconEye, IconLogout } from './components/Icons';
 
 type ViewMode = 'edit' | 'preview';
@@ -135,9 +136,11 @@ function Workspace() {
             <IconEye />
             <span>{viewMode === 'preview' ? '编辑' : '预览'}</span>
           </button>
-          <button className="icon-toggle" title="登出" onClick={() => void logout()}>
-            <IconLogout />
-          </button>
+          {!isDesktop && (
+            <button className="icon-toggle" title="登出" onClick={() => void logout()}>
+              <IconLogout />
+            </button>
+          )}
         </div>
       </header>
 

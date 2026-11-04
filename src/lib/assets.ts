@@ -1,6 +1,7 @@
 import { EditorView } from '@uiw/react-codemirror';
 import { api } from './api';
 import { currentKey, decryptValue, encryptValue, fromBase64, randomHex, toBase64 } from './crypto';
+import { desktopAssetUrl, desktopSaveAsset, isDesktop } from './desktop';
 import { useStore } from '../store/app';
 
 /**
@@ -40,22 +41,18 @@ export async function compressImage(file: File): Promise<AssetPayload> {
   return { mime: 'image/jpeg', data: toBase64(new Uint8Array(await blob.arrayBuffer())) };
 }
 
-export async function uploadAsset(payload: AssetPayload): Promise<string> {
-  const key = currentKey();
-  if (!key) throw new Error('未解锁');
-  const id = randomHex(16);
-  const { cipher, nonce } = await encryptValue(key, payload);
-  await api(`/assets/${id}`, { method: 'PUT', body: { cipher, nonce } });
-  return id;
-}
-
-// asset id → blob URL 缓存（同一图片多处引用只解密一次）
+// asset id → blob URL（云端）或 asset:// URL（桌面本地文件）
 const urlCache = new Map<string, string>();
 
 export async function resolveAssetUrl(id: string): Promise<string> {
-  if (!/^[a-f0-9]{1,64}$/.test(id)) throw new Error('bad id');
+  if (!/^[A-Za-z0-9._-]{1,80}$/.test(id)) throw new Error('bad id');
   const cached = urlCache.get(id);
   if (cached) return cached;
+  if (isDesktop) {
+    const url = await desktopAssetUrl(id);
+    urlCache.set(id, url);
+    return url;
+  }
   const key = currentKey();
   if (!key) throw new Error('未解锁');
   const { cipher, nonce } = await api<{ cipher: string; nonce: string }>(`/assets/${id}`);
@@ -72,9 +69,19 @@ export async function insertImageFile(view: EditorView, file: File): Promise<voi
   store.showToast('图片处理中…');
   try {
     const payload = await compressImage(file);
-    const id = await uploadAsset(payload);
+    let assetId: string;
+    if (isDesktop) {
+      const ext = payload.mime.split('/')[1]?.replace('jpeg', 'jpg').replace('svg+xml', 'svg') ?? 'png';
+      assetId = await desktopSaveAsset(fromBase64(payload.data), ext);
+    } else {
+      const key = currentKey();
+      if (!key) throw new Error('未解锁');
+      assetId = randomHex(16);
+      const { cipher, nonce } = await encryptValue(key, payload);
+      await api(`/assets/${assetId}`, { method: 'PUT', body: { cipher, nonce } });
+    }
     const name = (file.name || '图片').replace(/\.[^.]*$/, '').slice(0, 40) || '图片';
-    const insert = `\n\n![${name}](asset:${id})\n\n`;
+    const insert = `\n\n![${name}](asset:${assetId})\n\n`;
     const pos = view.state.selection.main.head;
     view.dispatch({
       changes: { from: pos, insert },
@@ -83,7 +90,7 @@ export async function insertImageFile(view: EditorView, file: File): Promise<voi
     view.focus();
     store.showToast('图片已插入');
   } catch (e) {
-    const msg = (e as Error).message?.includes('8MB') ? '图片超过 8MB，已跳过' : '图片插入失败（格式不支持或网络错误）';
+    const msg = (e as Error).message?.includes('8MB') ? '图片超过 8MB，已跳过' : '图片插入失败（格式不支持或写入失败）';
     useStore.getState().showToast(msg);
   }
 }

@@ -40,9 +40,9 @@ npm run deploy
 
 ## 桌面客户端
 
-`src-tauri/` 是桌面端（macOS、Windows），作为你部署的服务地址的壳：首启动填一次服务地址，之后打开即用，加密流程与网页版相同。
+`src-tauri/` 是桌面端（macOS、Windows），纯本地应用：无登录、不联网、不上传。笔记以 Markdown 文件保存在用户主目录的 `InkVault` 文件夹，文件树就是真实的文件夹结构（重命名、移动、删除都会同步到磁盘），图片存在 `InkVault/.assets/`，通过 Tauri 的 asset 协议加载。同一份前端代码在网页版走云端加密同步，在桌面版走本地文件，运行时自动识别。
 
-打包推送 tag 触发（如 `v0.1.0`），GitHub Actions 用 tauri-action 构建三个产物（Apple Silicon dmg、Intel dmg、Windows nsis 安装包，约 5MB），进入 Releases 草稿。应用未做代码签名：macOS 首次打开右键选"打开"，Windows 遇 SmartScreen 选"仍要运行"。
+打包推送 tag 触发（如 `v0.1.0`），GitHub Actions 用 tauri-action 构建三个产物（Apple Silicon dmg、Intel dmg、Windows nsis 安装包），进入 Releases 草稿。应用未做代码签名：macOS 首次打开右键选"打开"，Windows 遇 SmartScreen 选"仍要运行"。
 
 ## 目录结构
 

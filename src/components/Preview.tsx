@@ -22,7 +22,7 @@ export function Preview({
     if (!el) return;
     el.querySelectorAll<HTMLImageElement>('img[src^="asset:"]').forEach((img) => {
       const id = (img.getAttribute('src') ?? '').slice('asset:'.length);
-      if (!/^[a-f0-9]{1,64}$/.test(id)) return;
+      if (!/^[A-Za-z0-9._-]{1,80}$/.test(id)) return;
       void resolveAssetUrl(id)
         .then((url) => {
           img.src = url;

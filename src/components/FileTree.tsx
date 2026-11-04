@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { childrenOf, isDescendant, sortKeyBetween, useStore } from '../store/app';
+import { isDesktop } from '../lib/desktop';
 import type { DecryptedDoc } from '../lib/types';
 import { IconDoc, IconFolder, IconFolderOpen, IconFolderPlus, IconPlus, IconPencil, IconTrash, IconChevronDown, IconChevronRight } from './Icons';
 
@@ -101,15 +102,22 @@ function TreeNode({
     e.stopPropagation();
     const rect = e.currentTarget.getBoundingClientRect();
     const ratio = (e.clientY - rect.top) / rect.height;
-    const pos: DropPos = isFolder
-      ? ratio < 0.3
-        ? 'before'
-        : ratio > 0.7
-          ? 'after'
-          : 'into'
-      : ratio < 0.5
-        ? 'before'
-        : 'after';
+    // 桌面模式按文件名排序，只支持"移入文件夹"；云端支持前/后/内精确定位
+    let pos: DropPos;
+    if (isDesktop) {
+      if (!isFolder) return; // 文档行不作为放置目标（无排序意义）
+      pos = 'into';
+    } else {
+      pos = isFolder
+        ? ratio < 0.3
+          ? 'before'
+          : ratio > 0.7
+            ? 'after'
+            : 'into'
+        : ratio < 0.5
+          ? 'before'
+          : 'after';
+    }
     setDropPos(pos);
   }
 
@@ -124,7 +132,7 @@ function TreeNode({
 
     if (pos === 'into') {
       if (!isFolder) return;
-      void moveNode(id, doc.id, sortKeyBetween(docs, doc.id, null, null));
+      void moveNode(id, doc.id, isDesktop ? 0 : sortKeyBetween(docs, doc.id, null, null));
     } else {
       const siblings = childrenOf(docs, doc.parentId);
       const idx = siblings.findIndex((d) => d.id === doc.id);

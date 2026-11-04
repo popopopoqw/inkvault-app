@@ -10,6 +10,16 @@ import {
   holdKey,
   randomHex,
 } from '../lib/crypto';
+import {
+  desktopCreateNode,
+  desktopDelete,
+  desktopListDocs,
+  desktopMove,
+  desktopRename,
+  desktopWriteDoc,
+  isDesktop,
+  isMdTitle,
+} from '../lib/desktop';
 import type { DecryptedDoc, EncryptedDoc } from '../lib/types';
 
 export type Phase = 'boot' | 'setup' | 'login' | 'ready';
@@ -58,9 +68,11 @@ let flushing = false;
 let flushQueued = false;
 
 export function childrenOf(docs: Record<string, DecryptedDoc>, parentId: string | null): DecryptedDoc[] {
-  return Object.values(docs)
-    .filter((d) => d.parentId === parentId)
-    .sort((a, b) => a.sortKey - b.sortKey || a.id.localeCompare(b.id));
+  const list = Object.values(docs).filter((d) => d.parentId === parentId);
+  // 桌面模式按文件名排序（文件系统没有手动顺序），云端按 sortKey
+  return isDesktop
+    ? [...list].sort((a, b) => a.title.localeCompare(b.title, 'zh'))
+    : list.sort((a, b) => a.sortKey - b.sortKey || a.id.localeCompare(b.id));
 }
 
 export function collectSubtree(docs: Record<string, DecryptedDoc>, rootId: string): string[] {
@@ -129,6 +141,37 @@ async function applyServerRows(rows: EncryptedDoc[]): Promise<Record<string, Dec
   return out;
 }
 
+// 桌面模式：目录改名/移动会改变子树所有路径（id），整体重映射
+function remapIds(
+  state: { docs: Record<string, DecryptedDoc>; activeId: string | null; expanded: Record<string, boolean> },
+  oldPrefix: string,
+  newPrefix: string,
+  newTitle?: string
+): { docs: Record<string, DecryptedDoc>; activeId: string | null; expanded: Record<string, boolean> } {
+  const docs: Record<string, DecryptedDoc> = {};
+  for (const [id, d] of Object.entries(state.docs)) {
+    if (id.startsWith(oldPrefix)) {
+      const nid = newPrefix + id.slice(oldPrefix.length);
+      docs[nid] = {
+        ...d,
+        id: nid,
+        parentId: d.parentId && d.parentId.startsWith(oldPrefix) ? newPrefix + d.parentId.slice(oldPrefix.length) : d.parentId,
+        title: id === oldPrefix && newTitle !== undefined ? newTitle : d.title,
+      };
+    } else {
+      docs[id] = d;
+    }
+  }
+  const activeId = state.activeId?.startsWith(oldPrefix)
+    ? newPrefix + state.activeId.slice(oldPrefix.length)
+    : state.activeId;
+  const expanded: Record<string, boolean> = {};
+  for (const [k, v] of Object.entries(state.expanded)) {
+    expanded[k.startsWith(oldPrefix) ? newPrefix + k.slice(oldPrefix.length) : k] = v;
+  }
+  return { docs, activeId, expanded };
+}
+
 export const useStore = create<AppState>()((set, get) => ({
   phase: 'boot',
   bootError: null,
@@ -149,6 +192,20 @@ export const useStore = create<AppState>()((set, get) => ({
   dismissToast: () => set({ toast: null }),
 
   boot: async () => {
+    // 桌面模式：无登录，直接从本地文件系统加载
+    if (isDesktop) {
+      try {
+        const docs = await desktopListDocs();
+        const first = childrenOf(docs, null).find((d) => !d.isFolder);
+        set({ phase: 'ready', docs, activeId: first?.id ?? null });
+        if (Object.keys(docs).length === 0) {
+          await get().createNode(null, false, isDesktop ? WELCOME_DESKTOP : WELCOME_CONTENT);
+        }
+      } catch {
+        set({ phase: 'boot', bootError: '本地笔记库读取失败，请重试' });
+      }
+      return;
+    }
     try {
       authInfo = await api<AuthInfo>('/auth/info');
       set({ phase: authInfo.initialized ? 'login' : 'setup' });
@@ -216,6 +273,23 @@ export const useStore = create<AppState>()((set, get) => ({
   toggleFolder: (id) => set((s) => ({ expanded: { ...s.expanded, [id]: !s.expanded[id] } })),
 
   createNode: async (parentId, isFolder, initialContent) => {
+    if (isDesktop) {
+      try {
+        const node = await desktopCreateNode(parentId, isFolder);
+        if (initialContent && !isFolder) {
+          node.content = initialContent;
+          await desktopWriteDoc(node.id, initialContent);
+        }
+        set((s) => ({
+          docs: { ...s.docs, [node.id]: node },
+          activeId: isFolder ? s.activeId : node.id,
+          expanded: parentId ? { ...s.expanded, [parentId]: true } : s.expanded,
+        }));
+      } catch {
+        get().showToast('创建失败');
+      }
+      return;
+    }
     const { docs } = get();
     const id = randomHex(16);
     const sortKey = sortKeyBetween(docs, parentId, null, null);
@@ -240,6 +314,15 @@ export const useStore = create<AppState>()((set, get) => ({
   renameNode: async (id, title) => {
     const doc = get().docs[id];
     if (!doc || doc.title === title) return;
+    if (isDesktop) {
+      try {
+        const change = await desktopRename(id, title);
+        set((s) => remapIds(s, change.old_path, change.new_path, isMdTitle(change.new_path)));
+      } catch {
+        get().showToast('重命名失败（名称含非法字符或已存在）');
+      }
+      return;
+    }
     set((s) => ({ docs: { ...s.docs, [id]: { ...doc, title } } }));
     dirty.add(id);
     await get().flush();
@@ -251,6 +334,23 @@ export const useStore = create<AppState>()((set, get) => ({
     if (!doc) return;
     if (parentId && (parentId === id || isDescendant(docs, id, parentId))) {
       get().showToast('不能移动到自身或其子文件夹内');
+      return;
+    }
+    if (isDesktop) {
+      // 文件系统按名称排序，忽略 sortKey；同目录移动视为无操作
+      if (doc.parentId === parentId) return;
+      try {
+        const change = await desktopMove(id, parentId);
+        set((s) => {
+          const remapped = remapIds(s, change.old_path, change.new_path);
+          return {
+            ...remapped,
+            expanded: parentId ? { ...remapped.expanded, [parentId]: true } : remapped.expanded,
+          };
+        });
+      } catch {
+        get().showToast('移动失败（目标已存在同名文件）');
+      }
       return;
     }
     if (doc.parentId === parentId && doc.sortKey === sortKey) return;
@@ -265,18 +365,37 @@ export const useStore = create<AppState>()((set, get) => ({
   deleteNode: async (id) => {
     const { docs, activeId } = get();
     const ids = collectSubtree(docs, id);
-    const remaining: Record<string, DecryptedDoc> = { ...docs };
+    if (isDesktop) {
+      try {
+        await desktopDelete(id);
+      } catch {
+        get().showToast('删除失败');
+        return;
+      }
+      const remaining: Record<string, DecryptedDoc> = { ...docs };
+      for (const i of ids) {
+        delete remaining[i];
+        dirty.delete(i);
+      }
+      let nextActive = activeId;
+      if (activeId && ids.includes(activeId)) {
+        nextActive = childrenOf(remaining, docs[id]?.parentId ?? null).find((d) => !d.isFolder)?.id ?? null;
+      }
+      set({ docs: remaining, activeId: nextActive });
+      return;
+    }
+    const remaining2: Record<string, DecryptedDoc> = { ...docs };
     for (const i of ids) {
-      delete remaining[i];
+      delete remaining2[i];
       pendingDeletes.add(i);
       dirty.delete(i);
     }
-    let nextActive = activeId;
+    let nextActive2 = activeId;
     if (activeId && ids.includes(activeId)) {
       const parent = docs[id]?.parentId ?? null;
-      nextActive = childrenOf(remaining, parent).find((d) => !d.isFolder)?.id ?? null;
+      nextActive2 = childrenOf(remaining2, parent).find((d) => !d.isFolder)?.id ?? null;
     }
-    set({ docs: remaining, activeId: nextActive });
+    set({ docs: remaining2, activeId: nextActive2 });
     await get().flush();
   },
 
@@ -295,6 +414,34 @@ export const useStore = create<AppState>()((set, get) => ({
     }
     if (dirty.size === 0 && pendingDeletes.size === 0) {
       set({ saveState: 'idle' });
+      return;
+    }
+    // 桌面模式：明文直接写本地文件，无加密与版本协商
+    if (isDesktop) {
+      flushing = true;
+      set({ saveState: 'saving' });
+      try {
+        const docsNow = get().docs;
+        for (const id of dirty) {
+          const d = docsNow[id];
+          if (d) await desktopWriteDoc(id, d.content);
+        }
+        dirty.clear();
+        set({ saveState: 'saved' });
+        setTimeout(() => {
+          if (useStore.getState().saveState === 'saved') set({ saveState: 'idle' });
+        }, 2000);
+      } catch {
+        set({ saveState: 'error' });
+        get().showToast('写入本地文件失败，将自动重试');
+        scheduleAutosave();
+      } finally {
+        flushing = false;
+        if (flushQueued) {
+          flushQueued = false;
+          scheduleAutosave();
+        }
+      }
       return;
     }
     const key = currentKey();
@@ -379,14 +526,14 @@ setUnauthorizedHandler(() => {
   useStore.setState({ phase: 'login', docs: {}, activeId: null, saveState: 'idle' });
 });
 
-const WELCOME_CONTENT = `# 欢迎使用 Markdown 编辑器
+const WELCOME_CONTENT = `# 欢迎使用墨匣
 
 所有内容在**浏览器内加密**后才上传，服务器只保存密文。
 
 ## 常用能力
 
 - 左侧**文件树**：新建 / 重命名 / 删除 / 拖拽整理文档与文件夹
-- 中间**双栏实时预览**：输入即渲染，支持编辑 / 分屏 / 预览三种模式
+- 中间**所见即所得**：输入即渲染，光标贴着语法标记时显示源码
 - 右侧**大纲目录**：自动生成，点击跳转
 
 ## 语法示例
@@ -412,4 +559,26 @@ function greet(name: string): string {
 ---
 
 ⚠️ 提醒：密码**无法找回**（端到端加密，服务器没有密码），请务必记牢。
+`;
+
+const WELCOME_DESKTOP = `# 欢迎使用墨匣
+
+笔记以 Markdown 文件保存在本机 \`InkVault\` 文件夹（用户主目录下），不联网、不上传，文件树就是真实的文件夹结构。
+
+## 常用能力
+
+- 左侧**文件树**：新建 / 重命名 / 删除 / 拖拽归类，重命名会同步改名磁盘文件
+- 中间**所见即所得**：输入即渲染，光标贴着语法标记时显示源码
+- 右侧**大纲目录**：自动生成，点击跳转；截图可直接粘贴，图片存在 \`.assets\` 文件夹
+
+## 语法示例
+
+\`\`\`ts
+function greet(name: string): string {
+  return \`Hello, \${name}!\`;
+}
+\`\`\`
+
+- [x] 自动保存（停顿 1.5 秒后写入磁盘）
+- [ ] 开始写你的第一篇文档
 `;

@@ -176,7 +176,7 @@ function buildDecorations(view: EditorView): DecorationSet {
 
           // 整行独占的附件图片：直接显示真图
           if (isImage) {
-            const imgMatch = /^!\[([^\]]*)\]\(asset:([a-f0-9]{1,64})\)$/.exec(state.sliceDoc(node.from, node.to));
+            const imgMatch = /^!\[([^\]]*)\]\(asset:([A-Za-z0-9._-]{1,80})\)$/.exec(state.sliceDoc(node.from, node.to));
             if (imgMatch) {
               const line = state.doc.lineAt(node.from);
               if (line.text.trim() === state.sliceDoc(node.from, node.to) && !cursorLines.has(line.number)) {

@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build && node scripts/copy-desktop-entry.mjs",
+    "build": "tsc -b && vite build",
     "preview": "vite preview",
     "deploy": "npm run build && wrangler deploy",
     "cf-typegen": "wrangler types"
@@ -17,6 +17,7 @@
     "@codemirror/language-data": "^6.5.1",
     "@codemirror/state": "^6.7.6",
     "@codemirror/view": "^6.43.15",
+    "@tauri-apps/api": "^2.12.4",
     "@uiw/react-codemirror": "^4.23.14",
     "highlight.js": "^11.11.1",
     "hono": "^4.8.5",
