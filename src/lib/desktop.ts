@@ -1,4 +1,5 @@
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { open as openFileDialog } from '@tauri-apps/plugin-dialog';
 import type { DecryptedDoc } from './types';
 
@@ -107,6 +108,11 @@ export async function desktopAssetUrl(id: string): Promise<string> {
   const root = await desktopRoot();
   const sep = root.includes('\\') ? '\\' : '/';
   return convertFileSrc(`${root}${sep}.assets${sep}${id}`);
+}
+
+// 外部程序改动笔记库文件时，Rust 端推送 fs-change 事件（已过滤应用自身的写操作）
+export function onFsChange(callback: (paths: string[]) => void): Promise<() => void> {
+  return listen<string[]>('fs-change', (event) => callback(event.payload));
 }
 
 // ---- 打开本地文件夹 / 文件 ----

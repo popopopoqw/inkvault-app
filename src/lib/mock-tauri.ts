@@ -194,6 +194,20 @@ export function getCurrentWindow() {
   };
 }
 
+// ---- @tauri-apps/api/event mock（fs-change 用于测试外部文件变化） ----
+const fsChangeHandlers: Array<(payload: string[]) => void> = [];
+export async function listen(event: string, handler: (e: { payload: string[] }) => void): Promise<() => void> {
+  if (event === 'fs-change') {
+    const fn = (payload: string[]) => handler({ payload });
+    fsChangeHandlers.push(fn);
+    return () => {
+      const i = fsChangeHandlers.indexOf(fn);
+      if (i >= 0) fsChangeHandlers.splice(i, 1);
+    };
+  }
+  return () => {};
+}
+
 // ---- @tauri-apps/plugin-dialog mock：路径由测试注入 ----
 declare global {
   interface Window {
@@ -216,7 +230,13 @@ declare global {
     };
   }
 }
+declare global {
+  interface Window {
+    __mockEmitFsChange?: (paths: string[]) => void;
+  }
+}
 if (typeof window !== 'undefined') {
+  window.__mockEmitFsChange = (paths) => fsChangeHandlers.forEach((fn) => fn(paths));
   window.__mockFs = {
     dump: () => Object.fromEntries([...fs.entries()].map(([p, e]) => [p, e.type === 'file' ? (e.content ?? '') : '<dir>'])),
     readFile: (path) => fs.get(path)?.content,

@@ -1,12 +1,15 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use notify::{RecursiveMode, Watcher};
 use serde::Serialize;
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::RwLock;
-use tauri::Manager;
+use std::sync::{mpsc, RwLock};
+use std::time::{Duration, Instant};
+use tauri::{Emitter, Manager};
 
 #[derive(Serialize)]
 pub struct OpenResult {
@@ -43,6 +46,72 @@ fn unique_id() -> String {
 
 static ROOT: RwLock<Option<PathBuf>> = RwLock::new(None);
 
+// ---- 外部文件变化监听 ----
+static WATCH_GEN: AtomicU64 = AtomicU64::new(0);
+static WATCHED: RwLock<Option<(u64, PathBuf)>> = RwLock::new(None);
+static SELF_WRITES: RwLock<HashMap<PathBuf, Instant>> = RwLock::new(HashMap::new());
+
+/// 记录「应用自己写过的路径 + 时间」，监听线程据此过滤自身触发的文件事件
+fn note_self_write(path: &Path) {
+    if let Ok(mut w) = SELF_WRITES.write() {
+        let now = Instant::now();
+        w.retain(|_, t| now.duration_since(*t) < Duration::from_secs(3));
+        w.insert(path.to_path_buf(), now);
+    }
+}
+
+fn is_all_self_writes(paths: &[PathBuf]) -> bool {
+    if paths.is_empty() {
+        return false;
+    }
+    if let Ok(w) = SELF_WRITES.read() {
+        let now = Instant::now();
+        return paths.iter().all(|p| {
+            w.get(p).map(|t| now.duration_since(*t) < Duration::from_secs(3)).unwrap_or(false)
+        });
+    }
+    false
+}
+
+/// 递归监听笔记库根目录，外部变化通过 `fs-change` 事件推给前端；重复调用自动换根
+fn ensure_watch(app: &tauri::AppHandle, root: &Path) {
+    {
+        let watched = WATCHED.read().ok();
+        if let Some((_, r)) = watched.as_ref() {
+            if r == root {
+                return;
+            }
+        }
+    }
+    let gen = WATCH_GEN.fetch_add(1, Ordering::Relaxed) + 1;
+    if let Ok(mut w) = WATCHED.write() {
+        *w = Some((gen, root.to_path_buf()));
+    }
+    let (tx, rx) = mpsc::channel();
+    let mut watcher = match notify::recommended_watcher(tx) {
+        Ok(w) => w,
+        Err(_) => return,
+    };
+    if watcher.watch(root, RecursiveMode::Recursive).is_err() {
+        return;
+    }
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let _keep_alive = watcher; // watcher 必须存活，线程结束即停止监听
+        while let Ok(event) = rx.recv() {
+            if WATCH_GEN.load(Ordering::Relaxed) != gen {
+                break; // 已切换到新的监听目录
+            }
+            let Ok(event) = event else { continue };
+            if event.paths.is_empty() || is_all_self_writes(&event.paths) {
+                continue;
+            }
+            let paths: Vec<String> = event.paths.iter().map(|p| p.to_string_lossy().to_string()).collect();
+            let _ = app.emit("fs-change", paths);
+        }
+    });
+}
+
 fn config_file(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let home = app.path().home_dir().map_err(|e| e.to_string())?;
     Ok(home.join(".inkvault-root"))
@@ -65,6 +134,7 @@ fn vault_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     if let Ok(mut g) = ROOT.write() {
         *g = Some(root.clone());
     }
+    ensure_watch(app, &root);
     Ok(root)
 }
 
@@ -171,11 +241,7 @@ fn open_path(app: tauri::AppHandle, path: String) -> Result<OpenResult, String> 
     if let Ok(mut g) = ROOT.write() {
         *g = Some(root.clone());
     }
-    // 动态放行新根目录的图片协议访问
-    #[cfg(feature = "protocol-asset")]
-    {
-        let _ = &app;
-    }
+    ensure_watch(&app, &root);
     Ok(OpenResult {
         root: root.to_string_lossy().to_string(),
         select_path: select.map(|p| p.to_string_lossy().to_string()),
@@ -201,7 +267,11 @@ fn read_doc(app: tauri::AppHandle, path: String) -> Result<String, String> {
 fn write_doc(app: tauri::AppHandle, path: String, content: String) -> Result<(), String> {
     let root = vault_root(&app)?;
     let p = safe_path(&root, &path)?;
-    fs::write(&p, content).map_err(|e| e.to_string())
+    let r = fs::write(&p, content).map_err(|e| e.to_string());
+    if r.is_ok() {
+        note_self_write(&p);
+    }
+    r
 }
 
 #[tauri::command]
@@ -229,6 +299,7 @@ fn create_node(
     } else {
         fs::write(&target, "").map_err(|e| e.to_string())?;
     }
+    note_self_write(&target);
     Ok(Node {
         path: target.to_string_lossy().to_string(),
         name: target.file_name().unwrap_or_default().to_string_lossy().to_string(),
@@ -250,6 +321,8 @@ fn rename_node(app: tauri::AppHandle, path: String, new_name: String) -> Result<
     if target != old {
         fs::rename(&old, &target).map_err(|e| e.to_string())?;
     }
+    note_self_write(&old);
+    note_self_write(&target);
     Ok(PathChange {
         old_path: old.to_string_lossy().to_string(),
         new_path: target.to_string_lossy().to_string(),
@@ -277,6 +350,8 @@ fn move_node(app: tauri::AppHandle, path: String, new_parent: Option<String>) ->
     let stem = old.file_stem().unwrap_or_default().to_string_lossy().to_string();
     let target = unique_target(&dir, &stem, old.is_dir());
     fs::rename(&old, &target).map_err(|e| e.to_string())?;
+    note_self_write(&old);
+    note_self_write(&target);
     Ok(PathChange {
         old_path: old.to_string_lossy().to_string(),
         new_path: target.to_string_lossy().to_string(),
@@ -293,11 +368,15 @@ fn delete_node(app: tauri::AppHandle, path: String) -> Result<(), String> {
     if !p.exists() {
         return Ok(());
     }
-    if p.is_dir() {
+    let r = if p.is_dir() {
         fs::remove_dir_all(&p).map_err(|e| e.to_string())
     } else {
         fs::remove_file(&p).map_err(|e| e.to_string())
+    };
+    if r.is_ok() {
+        note_self_write(&p);
     }
+    r
 }
 
 /// 图片附件：写入 .assets/<id>.<ext>，返回 id（形如 "a1b2....png"，markdown 以 asset:<id> 引用）
@@ -308,7 +387,9 @@ fn save_asset(app: tauri::AppHandle, ext: String, data: Vec<u8>) -> Result<Strin
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let ext: String = ext.chars().filter(|c| c.is_ascii_alphanumeric()).take(8).collect();
     let id = format!("{}.{}", unique_id(), ext);
-    fs::write(dir.join(&id), data).map_err(|e| e.to_string())?;
+    let target = dir.join(&id);
+    fs::write(&target, data).map_err(|e| e.to_string())?;
+    note_self_write(&target);
     Ok(id)
 }
 

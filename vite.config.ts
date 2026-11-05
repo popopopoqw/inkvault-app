@@ -10,6 +10,7 @@ export default defineConfig({
     ? {
         alias: [
           { find: '@tauri-apps/api/core', replacement: '/src/lib/mock-tauri.ts' },
+          { find: '@tauri-apps/api/event', replacement: '/src/lib/mock-tauri.ts' },
           { find: '@tauri-apps/api/window', replacement: '/src/lib/mock-tauri.ts' },
           { find: '@tauri-apps/plugin-dialog', replacement: '/src/lib/mock-tauri.ts' },
         ],

@@ -8,6 +8,7 @@ import {
   desktopWriteDoc,
   invalidateRootCache,
   isMdTitle,
+  onFsChange,
 } from '../lib/desktop';
 import type { DecryptedDoc } from '../lib/types';
 
@@ -34,10 +35,24 @@ interface AppState {
   moveNode: (id: string, parentId: string | null) => Promise<void>;
   deleteNode: (id: string) => Promise<void>;
   openPath: (result: { root: string; select_path: string | null }) => Promise<void>;
+  syncFromDisk: () => Promise<void>;
   updateContent: (id: string, content: string) => void;
   flush: () => Promise<void>;
   showToast: (msg: string) => void;
   dismissToast: () => void;
+}
+
+let fsWatchSetup = false;
+let fsSyncTimer: ReturnType<typeof setTimeout> | null = null;
+
+// 外部文件变化（其他程序写入/新建/删除）→ 防抖后从磁盘重载树
+function setupFsWatch() {
+  if (fsWatchSetup) return;
+  fsWatchSetup = true;
+  void onFsChange(() => {
+    if (fsSyncTimer) clearTimeout(fsSyncTimer);
+    fsSyncTimer = setTimeout(() => void useStore.getState().syncFromDisk(), 600);
+  });
 }
 
 const dirty = new Set<string>();
@@ -139,6 +154,7 @@ export const useStore = create<AppState>()((set, get) => ({
       const docs = await desktopListDocs();
       const first = childrenOf(docs, null).find((d) => !d.isFolder);
       set({ phase: 'ready', docs, activeId: first?.id ?? null });
+      setupFsWatch();
       if (Object.keys(docs).length === 0) {
         await get().createNode(null, false, WELCOME_CONTENT);
       }
@@ -257,10 +273,37 @@ export const useStore = create<AppState>()((set, get) => ({
         childrenOf(docs, null).find((d) => !d.isFolder)?.id ??
         null;
       set({ docs, activeId: select, expanded: {}, saveState: 'idle' });
+      setupFsWatch();
       get().showToast(`已打开 ${result.root}`);
     } catch {
       get().showToast('读取目录失败');
     }
+  },
+
+  // 从磁盘重载文件树（外部程序改动后调用）。
+  // 冲突策略：有未保存编辑的文档以应用内编辑为准（写盘时覆盖外部改动）；其余直接采用磁盘内容。
+  syncFromDisk: async () => {
+    const prev = get().docs;
+    const activeId = get().activeId;
+    const hadDirty = dirty.size > 0;
+    let fresh: Record<string, DecryptedDoc>;
+    try {
+      fresh = await desktopListDocs();
+    } catch {
+      return; // 读盘失败保持现状，等下次事件
+    }
+    const merged: Record<string, DecryptedDoc> = { ...fresh };
+    if (hadDirty) {
+      for (const id of dirty) {
+        if (prev[id]) merged[id] = prev[id]; // 保留内存版本（含已被外部删除的情况，flush 时重建文件）
+      }
+      get().showToast('检测到笔记库被外部修改，未保存的编辑已保留');
+    }
+    let nextActive = activeId;
+    if (activeId && !merged[activeId]) {
+      nextActive = childrenOf(merged, null).find((d) => !d.isFolder)?.id ?? null;
+    }
+    set({ docs: merged, activeId: nextActive });
   },
 
   updateContent: (id, content) => {
