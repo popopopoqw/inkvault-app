@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import type { ReactNode } from 'react';
 import CodeMirror, { EditorSelection, EditorView, Prec, keymap } from '@uiw/react-codemirror';
 import { markdown } from '@codemirror/lang-markdown';
+import { Table } from '@lezer/markdown';
 import { languages } from '@codemirror/language-data';
 import { livePreview, resolveVisiblePos } from '../lib/livePreview';
 import { findImageFile, insertImageFile } from '../lib/assets';
@@ -128,7 +129,7 @@ export function EditorPane({
 
   const extensions = useMemo(
     () => [
-      markdown({ codeLanguages: languages }),
+      markdown({ codeLanguages: languages, extensions: [Table] }),
       livePreview,
       EditorView.domEventHandlers({
         // 点击落点：命中被隐藏的语法标记区域时，光标吸附到最近的可见位置
