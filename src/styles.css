@@ -366,6 +366,59 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(79, 70, 22
 }
 .dialog-actions .primary:disabled { opacity: 0.45; cursor: not-allowed; }
 
+/* ---------- 历史面板 ---------- */
+.history-panel {
+  width: 780px; max-width: 94vw; height: 560px; max-height: 86vh;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 16px 48px rgba(35, 30, 80, 0.22);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.history-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 18px 10px; border-bottom: 1px solid var(--border); flex-shrink: 0;
+}
+.history-head h2 { margin: 0; font-size: 15px; }
+.history-body { flex: 1; display: flex; min-height: 0; }
+.history-list {
+  width: 190px; flex-shrink: 0; overflow-y: auto;
+  border-right: 1px solid var(--border); padding: 8px;
+}
+.history-item {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 7px 10px; border-radius: 8px; cursor: pointer; font-size: 12.5px;
+}
+.history-item:hover { background: #f0f0f7; }
+.history-item.active { background: var(--accent-soft); }
+.hi-time { color: var(--text); }
+.history-item.active .hi-time { color: var(--accent); font-weight: 600; }
+.hi-stat em { font-style: normal; font-size: 11.5px; }
+.hi-stat em.add { color: #16a34a; }
+.hi-stat em.del { color: var(--danger); margin-left: 4px; }
+.history-detail { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.hd-actions { display: flex; justify-content: flex-end; gap: 10px; padding: 10px 14px; flex-shrink: 0; }
+.hd-actions .secondary { color: var(--text-dim); }
+.hd-actions .primary {
+  border: none; border-radius: 8px; padding: 7px 16px; color: #fff; font-weight: 600;
+  background: linear-gradient(135deg, #6d6af7, var(--accent));
+}
+.hd-actions .primary:disabled { opacity: 0.45; cursor: not-allowed; }
+.history-diff {
+  flex: 1; overflow-y: auto; margin: 0 14px 14px;
+  border: 1px solid var(--border); border-radius: 10px;
+  font-family: var(--mono); font-size: 12.5px; line-height: 1.6;
+}
+.dl { display: flex; gap: 8px; padding: 1px 10px; white-space: pre-wrap; word-break: break-all; }
+.dl .dl-sign { flex-shrink: 0; width: 12px; }
+.dl.add { background: #ecfdf5; color: #166534; }
+.dl.del { background: #fef2f2; color: #991b1b; }
+.history-full {
+  flex: 1; overflow-y: auto; margin: 0 14px 14px;
+  border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px;
+  font-family: var(--mono); font-size: 12.5px; line-height: 1.6; white-space: pre-wrap;
+}
+
 /* ---------- Toast ---------- */
 .toast {
   position: fixed;

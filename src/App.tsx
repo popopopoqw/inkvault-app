@@ -6,7 +6,8 @@ import { FileTree } from './components/FileTree';
 import { EditorPane } from './components/EditorPane';
 import { Preview, TocPanel } from './components/Preview';
 import { extractHeadings } from './lib/markdown';
-import { Logo, IconEye } from './components/Icons';
+import { Logo, IconEye, IconHistory } from './components/Icons';
+import { HistoryPanel } from './components/HistoryPanel';
 
 type ViewMode = 'edit' | 'preview';
 
@@ -46,6 +47,7 @@ function Workspace() {
   const [viewMode, setViewMode] = useState<ViewMode>('edit');
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState('');
+  const [showHistory, setShowHistory] = useState(false);
   const headings = useMemo(() => (activeDoc && !activeDoc.isFolder ? extractHeadings(activeDoc.content) : []), [activeDoc]);
   const [activeHeading, setActiveHeading] = useState(0);
   const [editorScrollEl, setEditorScrollEl] = useState<HTMLElement | null>(null);
@@ -177,6 +179,16 @@ function Workspace() {
         )}
         <span className={`save-state ${saveState}`}>{SAVE_LABEL[saveState] ?? ''}</span>
         <div className="topbar-right">
+          {activeDoc && !activeDoc.isFolder && (
+            <button
+              className="icon-toggle"
+              title="变更历史"
+              onClick={() => setShowHistory(true)}
+            >
+              <IconHistory />
+              <span>历史</span>
+            </button>
+          )}
           <button
             className={`icon-toggle${viewMode === 'preview' ? ' on' : ''}`}
             title={viewMode === 'preview' ? '返回编辑' : '预览'}
@@ -212,6 +224,10 @@ function Workspace() {
         <div className="toast" onClick={() => useStore.getState().dismissToast()}>
           {toast}
         </div>
+      )}
+
+      {showHistory && activeDoc && !activeDoc.isFolder && (
+        <HistoryPanel docId={activeDoc.id} onClose={() => setShowHistory(false)} />
       )}
     </div>
   );

@@ -36,6 +36,7 @@ interface AppState {
   deleteNode: (id: string) => Promise<void>;
   openPath: (result: { root: string; select_path: string | null }) => Promise<void>;
   syncFromDisk: () => Promise<void>;
+  applyRestoredContent: (id: string, content: string) => void;
   updateContent: (id: string, content: string) => void;
   flush: () => Promise<void>;
   showToast: (msg: string) => void;
@@ -306,6 +307,14 @@ export const useStore = create<AppState>()((set, get) => ({
     set({ docs: merged, activeId: nextActive });
   },
 
+  // 恢复历史版本后：磁盘已是历史内容，同步内存并清掉待写队列，防止旧内存覆盖恢复结果
+  applyRestoredContent: (id, content) => {
+    const doc = get().docs[id];
+    if (!doc) return;
+    set((s) => ({ docs: { ...s.docs, [id]: { ...doc, content } } }));
+    dirty.delete(id);
+  },
+
   updateContent: (id, content) => {
     const doc = get().docs[id];
     if (!doc || doc.content === content) return;
@@ -349,6 +358,11 @@ export const useStore = create<AppState>()((set, get) => ({
     }
   },
 }));
+
+// 调试与自动化测试辅助（只读访问 store 状态）
+if (typeof window !== 'undefined') {
+  (window as unknown as { __store?: typeof useStore }).__store = useStore;
+}
 
 const WELCOME_CONTENT = `# 欢迎使用墨匣
 

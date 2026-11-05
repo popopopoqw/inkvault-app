@@ -1,4 +1,4 @@
-import { useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import type { ReactNode } from 'react';
 import CodeMirror, { EditorSelection, EditorView, Prec, keymap } from '@uiw/react-codemirror';
 import { markdown } from '@codemirror/lang-markdown';
@@ -103,6 +103,17 @@ export function EditorPane({
 }) {
   const viewRef = useRef<EditorView | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // 强制同步：store 主动更新内容（恢复版本/外部文件变化）时替换编辑器文档。
+  // @uiw/react-codemirror 的受控 value 对外部更新不可靠，必须显式 dispatch。
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    const current = view.state.doc.toString();
+    if (current !== content) {
+      view.dispatch({ changes: { from: 0, to: current.length, insert: content } });
+    }
+  }, [content]);
 
   const extensions = useMemo(
     () => [

@@ -115,6 +115,38 @@ export function onFsChange(callback: (paths: string[]) => void): Promise<() => v
   return listen<string[]>('fs-change', (event) => callback(event.payload));
 }
 
+// ---- 版本历史 ----
+
+export interface VersionInfo {
+  seq: number;
+  time_ms: number;
+  added: number;
+  removed: number;
+  is_full: boolean;
+}
+
+export interface DiffLine {
+  kind: 'add' | 'del';
+  text: string;
+}
+
+export function listVersions(path: string): Promise<VersionInfo[]> {
+  return invoke<VersionInfo[]>('list_versions', { path });
+}
+
+export function readVersionDiff(path: string, seq: number): Promise<DiffLine[]> {
+  return invoke<DiffLine[]>('read_version_diff', { path, seq });
+}
+
+export function readVersion(path: string, seq: number): Promise<string> {
+  return invoke<string>('read_version', { path, seq });
+}
+
+/** 恢复历史版本；恢复前当前内容会自动存为一版 */
+export function restoreVersion(path: string, seq: number): Promise<string> {
+  return invoke<string>('restore_version', { path, seq });
+}
+
 // ---- 打开本地文件夹 / 文件 ----
 
 interface OpenResult {
