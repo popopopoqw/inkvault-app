@@ -1,4 +1,6 @@
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
+import { open as openFileDialog } from '@tauri-apps/plugin-dialog';
 import type { DecryptedDoc } from './types';
 
 /**
@@ -23,6 +25,11 @@ let rootCache: string | null = null;
 export async function desktopRoot(): Promise<string> {
   if (!rootCache) rootCache = await invoke<string>('vault_root_path');
   return rootCache;
+}
+
+// 打开新目录后使缓存的根路径失效，下次调用重新从后端获取
+export function invalidateRootCache() {
+  rootCache = null;
 }
 
 function parentOf(path: string): string {
@@ -56,15 +63,19 @@ export async function desktopListDocs(): Promise<Record<string, DecryptedDoc>> {
   return docs;
 }
 
-export async function desktopCreateNode(parentId: string | null, isFolder: boolean): Promise<DecryptedDoc> {
+export async function desktopCreateNode(parentId: string | null, isFolder: boolean, name?: string): Promise<DecryptedDoc> {
   const node = await invoke<FsNode>('create_node', {
     parent: parentId,
-    name: isFolder ? '新文件夹' : '无标题',
+    name: name ?? (isFolder ? '新文件夹' : '无标题'),
     isFolder,
   });
+  // 根目录下的节点 parentId 归一化为 null（与 desktopListDocs 同规则），
+  // 否则文件树按 parentId===null 找顶层节点时看不到它
+  const root = await desktopRoot();
+  const parent = parentOf(node.path);
   return {
     id: node.path,
-    parentId: parentOf(node.path),
+    parentId: parent === root ? null : parent,
     isFolder: node.is_folder,
     title: node.is_folder ? baseName(node.path) : isMdTitle(node.path),
     content: '',
@@ -97,4 +108,67 @@ export async function desktopAssetUrl(id: string): Promise<string> {
   const root = await desktopRoot();
   const sep = root.includes('\\') ? '\\' : '/';
   return convertFileSrc(`${root}${sep}.assets${sep}${id}`);
+}
+
+// 外部程序改动笔记库文件时，Rust 端推送 fs-change 事件（已过滤应用自身的写操作）
+export function onFsChange(callback: (paths: string[]) => void): Promise<() => void> {
+  return listen<string[]>('fs-change', (event) => callback(event.payload));
+}
+
+// ---- 版本历史 ----
+
+export interface VersionInfo {
+  seq: number;
+  time_ms: number;
+  added: number;
+  removed: number;
+  is_full: boolean;
+}
+
+export interface DiffLine {
+  kind: 'add' | 'del';
+  text: string;
+}
+
+export function listVersions(path: string): Promise<VersionInfo[]> {
+  return invoke<VersionInfo[]>('list_versions', { path });
+}
+
+export function readVersionDiff(path: string, seq: number): Promise<DiffLine[]> {
+  return invoke<DiffLine[]>('read_version_diff', { path, seq });
+}
+
+export function readVersion(path: string, seq: number): Promise<string> {
+  return invoke<string>('read_version', { path, seq });
+}
+
+/** 恢复历史版本；恢复前当前内容会自动存为一版 */
+export function restoreVersion(path: string, seq: number): Promise<string> {
+  return invoke<string>('restore_version', { path, seq });
+}
+
+// ---- 打开本地文件夹 / 文件 ----
+
+interface OpenResult {
+  root: string;
+  select_path: string | null;
+}
+
+/** 弹出文件夹选择框，把所选文件夹作为笔记库根目录 */
+export async function pickAndOpenFolder(): Promise<OpenResult | null> {
+  const picked = await openFileDialog({ directory: true, multiple: false, title: '打开文件夹' });
+  if (typeof picked !== 'string' || !picked) return null;
+  return invoke<OpenResult>('open_path', { path: picked });
+}
+
+/** 弹出文件选择框，打开单个 Markdown 文件（以其所在文件夹为根并选中） */
+export async function pickAndOpenFile(): Promise<OpenResult | null> {
+  const picked = await openFileDialog({
+    directory: false,
+    multiple: false,
+    title: '打开 Markdown 文件',
+    filters: [{ name: 'Markdown', extensions: ['md', 'markdown'] }],
+  });
+  if (typeof picked !== 'string' || !picked) return null;
+  return invoke<OpenResult>('open_path', { path: picked });
 }

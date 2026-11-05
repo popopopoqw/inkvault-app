@@ -1,26 +1,71 @@
 import { useState } from 'react';
 import { childrenOf, isDescendant, useStore } from '../store/app';
+import { pickAndOpenFile, pickAndOpenFolder } from '../lib/desktop';
 import type { DecryptedDoc } from '../lib/types';
+import { NewNodeDialog } from './NewNodeDialog';
 import { IconDoc, IconFolder, IconFolderOpen, IconFolderPlus, IconPlus, IconPencil, IconTrash, IconChevronDown, IconChevronRight } from './Icons';
 
 type DropPos = 'into';
 
 export function FileTree() {
   const docs = useStore((s) => s.docs);
-  const createNode = useStore((s) => s.createNode);
+  const activeId = useStore((s) => s.activeId);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [rootDragOver, setRootDragOver] = useState(false);
+  // 新建对话框：null 关闭；打开时预选目录（默认当前文档所在目录）
+  const [creating, setCreating] = useState<{ isFolder: boolean; parent: string | null } | null>(null);
+  const [openMenu, setOpenMenu] = useState(false);
   const roots = childrenOf(docs, null);
+
+  const openFolder = async () => {
+    try {
+      const result = await pickAndOpenFolder();
+      if (result) await useStore.getState().openPath(result);
+    } catch (e) {
+      useStore.getState().showToast((e as Error)?.message ?? '打开失败');
+    }
+  };
+  const openFile = async () => {
+    try {
+      const result = await pickAndOpenFile();
+      if (result) await useStore.getState().openPath(result);
+    } catch (e) {
+      useStore.getState().showToast((e as Error)?.message ?? '打开失败');
+    }
+  };
+
+  const openCreate = (isFolder: boolean, parent?: string | null) => {
+    const fallback = activeId ? (docs[activeId]?.parentId ?? null) : null;
+    setCreating({ isFolder, parent: parent !== undefined ? parent : fallback });
+  };
 
   return (
     <aside className="filetree">
       <div className="filetree-header">
         <span className="filetree-title">文档库</span>
         <span className="filetree-actions">
-          <button title="新建文档" onClick={() => void createNode(null, false)}>
+          <div className="open-wrap">
+            <button title="打开本地文件夹或文件" onClick={() => setOpenMenu((v) => !v)}>
+              <IconFolderOpen />
+            </button>
+            {openMenu && (
+              <>
+                <div className="menu-mask" onClick={() => setOpenMenu(false)} />
+                <div className="open-menu">
+                  <button onClick={() => { setOpenMenu(false); void openFolder(); }}>
+                    <IconFolder /> 打开文件夹…
+                  </button>
+                  <button onClick={() => { setOpenMenu(false); void openFile(); }}>
+                    <IconDoc /> 打开文件…
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+          <button title="新建文档（可选目录）" onClick={() => openCreate(false)}>
             <IconPlus />
           </button>
-          <button title="新建文件夹" onClick={() => void createNode(null, true)}>
+          <button title="新建文件夹（可选目录）" onClick={() => openCreate(true)}>
             <IconFolderPlus />
           </button>
         </span>
@@ -43,7 +88,14 @@ export function FileTree() {
         }}
       >
         {roots.map((d) => (
-          <TreeNode key={d.id} doc={d} depth={0} draggingId={draggingId} setDraggingId={setDraggingId} />
+          <TreeNode
+            key={d.id}
+            doc={d}
+            depth={0}
+            draggingId={draggingId}
+            setDraggingId={setDraggingId}
+            onCreateIn={openCreate}
+          />
         ))}
         {roots.length === 0 && (
           <p className="filetree-empty">
@@ -53,6 +105,15 @@ export function FileTree() {
           </p>
         )}
       </div>
+      {creating && (
+        <NewNodeDialog
+          docs={docs}
+          isFolder={creating.isFolder}
+          defaultParent={creating.parent}
+          onClose={() => setCreating(null)}
+          onSubmit={(parent, name) => void useStore.getState().createNodeNamed(parent, creating.isFolder, name)}
+        />
+      )}
     </aside>
   );
 }
@@ -62,11 +123,13 @@ function TreeNode({
   depth,
   draggingId,
   setDraggingId,
+  onCreateIn,
 }: {
   doc: DecryptedDoc;
   depth: number;
   draggingId: string | null;
   setDraggingId: (id: string | null) => void;
+  onCreateIn: (isFolder: boolean, parent?: string | null) => void;
 }) {
   const docs = useStore((s) => s.docs);
   const activeId = useStore((s) => s.activeId);
@@ -75,7 +138,7 @@ function TreeNode({
   const [title, setTitle] = useState(doc.title);
   const [dropPos, setDropPos] = useState<DropPos | null>(null);
 
-  const { selectDoc, toggleFolder, createNode, renameNode, deleteNode, moveNode } = useStore.getState();
+  const { selectDoc, toggleFolder, renameNode, deleteNode, moveNode } = useStore.getState();
   const isFolder = doc.isFolder;
   const isOpen = isFolder && isExpanded;
   const children = isFolder ? childrenOf(docs, doc.id) : [];
@@ -152,10 +215,10 @@ function TreeNode({
         <span className="tree-ops" onClick={(e) => e.stopPropagation()}>
           {isFolder && (
             <>
-              <button title="新建子文档" onClick={() => void createNode(doc.id, false)}>
+              <button title="在此新建文档" onClick={() => onCreateIn(false, doc.id)}>
                 <IconPlus />
               </button>
-              <button title="新建子文件夹" onClick={() => void createNode(doc.id, true)}>
+              <button title="在此新建文件夹" onClick={() => onCreateIn(true, doc.id)}>
                 <IconFolderPlus />
               </button>
             </>
@@ -175,7 +238,14 @@ function TreeNode({
         </span>
       </div>
       {isOpen && children.map((c) => (
-        <TreeNode key={c.id} doc={c} depth={depth + 1} draggingId={draggingId} setDraggingId={setDraggingId} />
+        <TreeNode
+          key={c.id}
+          doc={c}
+          depth={depth + 1}
+          draggingId={draggingId}
+          setDraggingId={setDraggingId}
+          onCreateIn={onCreateIn}
+        />
       ))}
     </>
   );

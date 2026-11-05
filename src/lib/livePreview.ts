@@ -1,7 +1,8 @@
 import { syntaxTree } from '@codemirror/language';
-import { Range } from '@codemirror/state';
+import { EditorState, Range, StateField } from '@codemirror/state';
 import { Decoration, DecorationSet, EditorView, ViewPlugin, ViewUpdate, WidgetType } from '@codemirror/view';
 import { resolveAssetUrl } from './assets';
+import { renderMermaidToSvg } from './mermaid';
 
 /**
  * 所见即所得渲染：基于 markdown 语法树隐藏语法标记并应用渲染样式。
@@ -66,13 +67,43 @@ class ImageWidget extends WidgetType {
   }
 }
 
+// 整块 mermaid 图表：光标不在块内时直接渲染成图
+class MermaidWidget extends WidgetType {
+  constructor(private code: string) {
+    super();
+  }
+  eq(other: MermaidWidget) {
+    return other.code === this.code;
+  }
+  get lineBreaks() {
+    return Math.max(4, this.code.split('\n').length);
+  }
+  toDOM() {
+    const wrap = document.createElement('div');
+    wrap.className = 'cm-mermaid';
+    wrap.textContent = '图表渲染中…';
+    void renderMermaidToSvg(this.code)
+      .then((svg) => {
+        wrap.innerHTML = svg;
+      })
+      .catch((e) => {
+        wrap.classList.add('mermaid-error');
+        wrap.textContent = `图表渲染失败：${(e as Error)?.message?.split('\n')[0] ?? '语法错误'}`;
+      });
+    return wrap;
+  }
+  ignoreEvent() {
+    return false;
+  }
+}
+
 function selectionLines(state: EditorView['state']): Set<number> {
   const lines = new Set<number>();
   for (const range of state.selection.ranges) lines.add(state.doc.lineAt(range.head).number);
   return lines;
 }
 
-function buildDecorations(view: EditorView): DecorationSet {
+function buildInlineDecorations(view: EditorView): DecorationSet {
   const state = view.state;
   const cursorLines = selectionLines(state);
   const ranges: Range<Decoration>[] = [];
@@ -81,6 +112,17 @@ function buildDecorations(view: EditorView): DecorationSet {
   const hideIfNoCursor = (from: number, to: number) => {
     const nearCursor = state.selection.ranges.some((r) => r.head >= from - 1 && r.head <= to + 1);
     if (!nearCursor && to > from) ranges.push(hide.range(from, to));
+  };
+
+  // 配对语法（** **、` `、围栏、链接的 [ 和 ](...)）必须整对显示/隐藏，
+  // 否则光标贴着后半个标记时只显示一半语法，看不出语法结构
+  const hidePairIfNoCursor = (first: { from: number; to: number }, ...rest: { from: number; to: number }[]) => {
+    const nearCursor = state.selection.ranges.some((r) =>
+      [first, ...rest].some((m) => r.head >= m.from - 1 && r.head <= m.to + 1)
+    );
+    if (nearCursor) return;
+    ranges.push(hide.range(first.from, first.to));
+    for (const m of rest) ranges.push(hide.range(m.from, m.to));
   };
 
   syntaxTree(state).iterate({
@@ -108,8 +150,7 @@ function buildDecorations(view: EditorView): DecorationSet {
           const first = node.node.firstChild;
           const last = node.node.lastChild;
           if (!first || !last || first === last) break; // 空内容或异常结构
-          hideIfNoCursor(first.from, first.to);
-          hideIfNoCursor(last.from, last.to);
+          hidePairIfNoCursor({ from: first.from, to: first.to }, { from: last.from, to: last.to });
           const style = node.name === 'StrongEmphasis' ? strongDeco : emDeco;
           ranges.push(style.range(first.to, last.from));
           break;
@@ -118,34 +159,35 @@ function buildDecorations(view: EditorView): DecorationSet {
           const first = node.node.firstChild;
           const last = node.node.lastChild;
           if (!first || !last || first === last) break;
-          hideIfNoCursor(first.from, first.to);
-          hideIfNoCursor(last.from, last.to);
+          hidePairIfNoCursor({ from: first.from, to: first.to }, { from: last.from, to: last.to });
           ranges.push(codeDeco.range(first.to, last.from));
           break;
         }
         case 'FencedCode': {
-          // 围栏行（``` 与语言标记）隐藏，内容行加代码样式
+          // 围栏行（``` 与语言标记）隐藏，内容行加代码样式；两个围栏联动显示
           const marks: { from: number; to: number }[] = [];
           let codeText: { from: number; to: number } | null = null;
           for (const child of node.node.getChildren('CodeMark')) marks.push({ from: child.from, to: child.to });
           const info = node.node.getChild('CodeInfo');
           for (const child of node.node.getChildren('CodeText')) codeText = { from: child.from, to: child.to };
-          if (marks.length >= 1) {
+
+          // mermaid 块：整块装饰由 mermaidBlockField（StateField）负责，行内不处理
+          const lang = info && info.to > info.from ? state.sliceDoc(info.from, info.to).trim() : '';
+          if (lang === 'mermaid') break;
+
+          const nearAnyFence = marks.some((m) => cursorLines.has(state.doc.lineAt(m.from).number));
+          if (marks.length >= 1 && !nearAnyFence) {
             const firstMark = marks[0];
             const fenceEnd = info ? info.to : firstMark.to;
             const fenceLine = state.doc.lineAt(firstMark.from);
-            if (!cursorLines.has(fenceLine.number)) {
-              hideIfNoCursor(firstMark.from, fenceEnd);
-              ranges.push(lineDeco('cm-md-fence').range(fenceLine.from));
-            }
+            ranges.push(hide.range(firstMark.from, fenceEnd));
+            ranges.push(lineDeco('cm-md-fence').range(fenceLine.from));
           }
-          if (marks.length >= 2) {
+          if (marks.length >= 2 && !nearAnyFence) {
             const last = marks[marks.length - 1];
             const lastLine = state.doc.lineAt(last.from);
-            if (!cursorLines.has(lastLine.number)) {
-              hideIfNoCursor(last.from, last.to);
-              ranges.push(lineDeco('cm-md-fence').range(lastLine.from));
-            }
+            ranges.push(hide.range(last.from, last.to));
+            ranges.push(lineDeco('cm-md-fence').range(lastLine.from));
           }
           if (codeText) {
             const firstLine = state.doc.lineAt(codeText.from).number;
@@ -192,9 +234,12 @@ function buildDecorations(view: EditorView): DecorationSet {
           if (!text.startsWith('[') || closeIdx < 0) break;
           if (!/^\]\(/.test(text.slice(closeIdx))) break; // 无 (url) 目标，非行内链接
           const closePos = start + closeIdx;
-          if (isImage) hideIfNoCursor(node.from, node.from + 1);
-          hideIfNoCursor(start, start + 1);
-          hideIfNoCursor(closePos, node.to);
+          // '[' 与 '](url)' 联动：光标贴着任一半就整对显示源码
+          if (isImage) {
+            hidePairIfNoCursor({ from: node.from, to: node.from + 1 }, { from: start, to: start + 1 }, { from: closePos, to: node.to });
+          } else {
+            hidePairIfNoCursor({ from: start, to: start + 1 }, { from: closePos, to: node.to });
+          }
           if (closePos > start + 1) ranges.push(linkDeco.range(start + 1, closePos));
           break;
         }
@@ -226,13 +271,83 @@ export const livePreviewPlugin = ViewPlugin.fromClass(
   class {
     decorations: DecorationSet;
     constructor(view: EditorView) {
-      this.decorations = buildDecorations(view);
+      this.decorations = buildInlineDecorations(view);
     }
     update(update: ViewUpdate) {
       if (update.docChanged || update.selectionSet || update.viewportChanged) {
-        this.decorations = buildDecorations(update.view);
+        this.decorations = buildInlineDecorations(update.view);
       }
     }
   },
   { decorations: (plugin) => plugin.decorations }
 );
+
+// 块级装饰（整块 mermaid 图）必须由 StateField 提供，ViewPlugin 会抛
+// "Block decorations may not be specified via plugins"
+function buildBlockDecorations(state: EditorState): DecorationSet {
+  const ranges: Range<Decoration>[] = [];
+  syntaxTree(state).iterate({
+    enter(node) {
+      if (node.name !== 'FencedCode') return;
+      const info = node.node.getChild('CodeInfo');
+      const codeText = node.node.getChildren('CodeText')[0];
+      if (!codeText) return;
+      const lang = info && info.to > info.from ? state.sliceDoc(info.from, info.to).trim() : '';
+      if (lang !== 'mermaid') return;
+      const firstLine = state.doc.lineAt(node.from).number;
+      const lastLine = state.doc.lineAt(node.to).number;
+      const cursorInside = state.selection.ranges.some((r) => {
+        const n = state.doc.lineAt(r.head).number;
+        return n >= firstLine && n <= lastLine;
+      });
+      if (cursorInside) return; // 光标在块内显示源码
+      const from = state.doc.lineAt(node.from).from;
+      const to = state.doc.lineAt(node.to).to;
+      ranges.push(
+        Decoration.replace({ widget: new MermaidWidget(state.sliceDoc(codeText.from, codeText.to)), block: true }).range(from, to)
+      );
+    },
+  });
+  return Decoration.set(ranges, true);
+}
+
+const mermaidBlockField = StateField.define<DecorationSet>({
+  create: buildBlockDecorations,
+  update(value, tr) {
+    if (tr.docChanged || tr.selection) return buildBlockDecorations(tr.state);
+    return value;
+  },
+});
+
+/** 编辑器即时渲染扩展（行内 ViewPlugin + 块级 StateField） */
+export const livePreview = [
+  livePreviewPlugin,
+  mermaidBlockField,
+  EditorView.decorations.compute([mermaidBlockField], (state) => state.field(mermaidBlockField)),
+] as const;
+
+/**
+ * 点击定位：若位置落在被隐藏的语法标记（replace 装饰）内，
+ * 吸附到该隐藏区间的最近边界，保证"点哪儿光标就在哪儿"。
+ */
+export function resolveVisiblePos(view: EditorView, pos: number): number {
+  // 先查块级（mermaid 整块替换）
+  const blockDecos = view.state.field(mermaidBlockField, false);
+  if (blockDecos) {
+    const bi = blockDecos.iter(pos);
+    if (bi.value && bi.from <= pos && pos < bi.to) {
+      return pos - bi.from <= bi.to - pos ? bi.from : bi.to;
+    }
+  }
+  const plugin = view.plugin(livePreviewPlugin);
+  if (!plugin) return pos;
+  // RangeSet 迭代器停在第一个与 pos 相关的区间：要么覆盖 pos，要么在 pos 之后
+  const iter = plugin.decorations.iter(pos);
+  if (iter.value && iter.from <= pos && pos < iter.to) {
+    // 无 class 的是 replace（隐藏）装饰；mark/line 装饰都带 class
+    if (!iter.value.spec.class) {
+      return pos - iter.from <= iter.to - pos ? iter.from : iter.to;
+    }
+  }
+  return pos;
+}

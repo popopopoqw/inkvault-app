@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { EditorView } from '@uiw/react-codemirror';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useStore } from './store/app';
 import { FileTree } from './components/FileTree';
 import { EditorPane } from './components/EditorPane';
 import { Preview, TocPanel } from './components/Preview';
 import { extractHeadings } from './lib/markdown';
-import { Logo, IconEye } from './components/Icons';
+import { Logo, IconEye, IconHistory } from './components/Icons';
+import { HistoryPanel } from './components/HistoryPanel';
 
 type ViewMode = 'edit' | 'preview';
 
@@ -43,6 +45,9 @@ function Workspace() {
 
   const activeDoc = activeId ? docs[activeId] : undefined;
   const [viewMode, setViewMode] = useState<ViewMode>('edit');
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState('');
+  const [showHistory, setShowHistory] = useState(false);
   const headings = useMemo(() => (activeDoc && !activeDoc.isFolder ? extractHeadings(activeDoc.content) : []), [activeDoc]);
   const [activeHeading, setActiveHeading] = useState(0);
   const [editorScrollEl, setEditorScrollEl] = useState<HTMLElement | null>(null);
@@ -110,6 +115,27 @@ function Workspace() {
     return () => window.removeEventListener('beforeunload', flush);
   }, []);
 
+  // Tauri 关窗钩子：beforeunload 的异步写盘来不及完成，必须拦截关闭、写完再关
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let disposed = false;
+    const win = getCurrentWindow();
+    void win
+      .onCloseRequested(async (event) => {
+        event.preventDefault();
+        await useStore.getState().flush();
+        await win.destroy();
+      })
+      .then((fn) => {
+        if (disposed) fn();
+        else unlisten = fn;
+      });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
+
   return (
     <div className="workspace">
       <header className="topbar">
@@ -118,12 +144,51 @@ function Workspace() {
           <span className="app-name">墨匣</span>
         </span>
         {activeDoc && !activeDoc.isFolder && (
-          <span className="doc-title" title={activeDoc.title}>
-            {activeDoc.title || '无标题'}
-          </span>
+          editingTitle ? (
+            <input
+              className="doc-title-input"
+              value={titleDraft}
+              autoFocus
+              onChange={(e) => setTitleDraft(e.target.value)}
+              onFocus={(e) => e.target.select()}
+              onBlur={() => {
+                setEditingTitle(false);
+                const name = titleDraft.trim();
+                if (name && name !== activeDoc.title) void useStore.getState().renameNode(activeDoc.id, name);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') e.currentTarget.blur();
+                if (e.key === 'Escape') {
+                  setTitleDraft(activeDoc.title);
+                  setEditingTitle(false);
+                }
+              }}
+            />
+          ) : (
+            <span
+              className="doc-title editable"
+              title="点击重命名"
+              onClick={() => {
+                setTitleDraft(activeDoc.title);
+                setEditingTitle(true);
+              }}
+            >
+              {activeDoc.title || '无标题'}
+            </span>
+          )
         )}
         <span className={`save-state ${saveState}`}>{SAVE_LABEL[saveState] ?? ''}</span>
         <div className="topbar-right">
+          {activeDoc && !activeDoc.isFolder && (
+            <button
+              className="icon-toggle"
+              title="文档历史"
+              onClick={() => setShowHistory(true)}
+            >
+              <IconHistory />
+              <span>文档历史</span>
+            </button>
+          )}
           <button
             className={`icon-toggle${viewMode === 'preview' ? ' on' : ''}`}
             title={viewMode === 'preview' ? '返回编辑' : '预览'}
@@ -159,6 +224,10 @@ function Workspace() {
         <div className="toast" onClick={() => useStore.getState().dismissToast()}>
           {toast}
         </div>
+      )}
+
+      {showHistory && activeDoc && !activeDoc.isFolder && (
+        <HistoryPanel docId={activeDoc.id} onClose={() => setShowHistory(false)} />
       )}
     </div>
   );

@@ -1,9 +1,9 @@
-import { useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import type { ReactNode } from 'react';
 import CodeMirror, { EditorSelection, EditorView, Prec, keymap } from '@uiw/react-codemirror';
 import { markdown } from '@codemirror/lang-markdown';
 import { languages } from '@codemirror/language-data';
-import { livePreviewPlugin } from '../lib/livePreview';
+import { livePreview, resolveVisiblePos } from '../lib/livePreview';
 import { findImageFile, insertImageFile } from '../lib/assets';
 import { useStore } from '../store/app';
 import { IconLink, IconQuote, IconList, IconTask, IconTable, IconCode, IconCodeInline, IconImage } from './Icons';
@@ -104,12 +104,47 @@ export function EditorPane({
   const viewRef = useRef<EditorView | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
+  // 强制同步：store 主动更新内容（恢复版本/外部文件变化）时替换编辑器文档。
+  // @uiw/react-codemirror 的受控 value 对外部更新不可靠，必须显式 dispatch。
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    const current = view.state.doc.toString();
+    if (current !== content) {
+      view.dispatch({ changes: { from: 0, to: current.length, insert: content } });
+    }
+  }, [content]);
+
   const extensions = useMemo(
     () => [
       markdown({ codeLanguages: languages }),
-      livePreviewPlugin,
+      livePreview,
       EditorView.domEventHandlers({
-        // 粘贴截图 / 拖拽图片文件 → 压缩加密上传后插入
+        // 点击落点：命中被隐藏的语法标记区域时，光标吸附到最近的可见位置
+        mousedown(event, view) {
+          const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
+          if (pos == null) return false;
+          const target = resolveVisiblePos(view, pos);
+          if (target === pos) return false; // 正常可见位置，交给 CodeMirror 默认处理（保留拖选）
+          view.dispatch({ selection: { anchor: target } });
+          return true;
+        },
+        // 双击选中文本：选中点击位置所在的连续词语段（字母/数字/汉字，遇标点空白停止）
+        dblclick(event, view) {
+          const clicked = view.posAtCoords({ x: event.clientX, y: event.clientY });
+          if (clicked == null) return false;
+          const pos = resolveVisiblePos(view, clicked);
+          const line = view.state.doc.lineAt(pos);
+          const isWordChar = (ch: string | undefined) => !!ch && /[\p{L}\p{N}_]/u.test(ch);
+          let from = pos;
+          let to = pos;
+          while (from > line.from && isWordChar(line.text[from - 1 - line.from])) from--;
+          while (to < line.to && isWordChar(line.text[to - line.from])) to++;
+          if (from >= to) return false;
+          view.dispatch({ selection: { anchor: from, head: to } });
+          return true; // 阻止默认双击，避免与隐藏语法标记的选择计算互相干扰
+        },
+        // 粘贴截图 / 拖拽图片文件 → 压缩后写入本地并插入
         paste(event, view) {
           const file = findImageFile(event.clipboardData);
           if (!file) return false;
