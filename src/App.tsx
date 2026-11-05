@@ -6,7 +6,8 @@ import { FileTree } from './components/FileTree';
 import { EditorPane } from './components/EditorPane';
 import { Preview, TocPanel } from './components/Preview';
 import { extractHeadings } from './lib/markdown';
-import { Logo, IconEye, IconHistory } from './components/Icons';
+import { Logo, IconEye, IconHistory, IconSearch } from './components/Icons';
+import { SearchPanel } from './components/SearchPanel';
 import { HistoryPanel } from './components/HistoryPanel';
 
 type ViewMode = 'edit' | 'preview';
@@ -48,6 +49,7 @@ function Workspace() {
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState('');
   const [showHistory, setShowHistory] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
   const headings = useMemo(() => (activeDoc && !activeDoc.isFolder ? extractHeadings(activeDoc.content) : []), [activeDoc]);
   const [activeHeading, setActiveHeading] = useState(0);
   const [editorScrollEl, setEditorScrollEl] = useState<HTMLElement | null>(null);
@@ -107,6 +109,18 @@ function Workspace() {
       cancelAnimationFrame(raf);
     };
   }, [editorScrollEl, headings, viewMode, activeId]);
+
+  // 全库搜索快捷键
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        setShowSearch((v) => !v);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   // 离开页面前把未保存内容落盘
   useEffect(() => {
@@ -191,6 +205,14 @@ function Workspace() {
         )}
         <span className={`save-state ${saveState}`}>{SAVE_LABEL[saveState] ?? ''}</span>
         <div className="topbar-right">
+          <button
+            className="icon-toggle"
+            title="搜索全部文档 (Cmd/Ctrl+Shift+F)"
+            onClick={() => setShowSearch(true)}
+          >
+            <IconSearch />
+            <span>搜索</span>
+          </button>
           {activeDoc && !activeDoc.isFolder && (
             <button
               className="icon-toggle"
@@ -241,6 +263,7 @@ function Workspace() {
       {showHistory && activeDoc && !activeDoc.isFolder && (
         <HistoryPanel docId={activeDoc.id} onClose={() => setShowHistory(false)} />
       )}
+      {showSearch && <SearchPanel onClose={() => setShowSearch(false)} />}
     </div>
   );
 }

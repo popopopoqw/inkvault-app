@@ -289,6 +289,32 @@ function buildInlineDecorations(view: EditorView): DecorationSet {
     },
   });
 
+  // 文字/背景颜色：<span style="color|background-color: #xxx"> 标签隐藏、内容着色（光标行显示源码）
+  const spanOpen = /<span style="(color|background-color):\s*(#[0-9a-fA-F]{3,8})\s*;?">/gi;
+  const closeTag = '</span>';
+  for (let n = 1; n <= state.doc.lines; n++) {
+    const line = state.doc.line(n);
+    if (!line.text.includes('<span')) continue;
+    if (cursorLines.has(n)) continue;
+    spanOpen.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = spanOpen.exec(line.text))) {
+      const openFrom = line.from + m.index;
+      const openTo = openFrom + m[0].length;
+      const closeIdx = line.text.indexOf(closeTag, spanOpen.lastIndex);
+      const contentTo = closeIdx === -1 ? line.to : line.from + closeIdx;
+      ranges.push(hide.range(openFrom, openTo));
+      ranges.push(Decoration.mark({ attributes: { style: `${m[1]}: ${m[2]}` } }).range(openTo, contentTo));
+      if (closeIdx !== -1) {
+        const closeFrom = line.from + closeIdx;
+        ranges.push(hide.range(closeFrom, closeFrom + closeTag.length));
+        spanOpen.lastIndex = closeIdx + closeTag.length;
+      } else {
+        break;
+      }
+    }
+  }
+
   return Decoration.set(ranges, true);
 }
 
@@ -369,6 +395,52 @@ export const livePreview = [
 ] as const;
 
 /**
+ * 点击定位（像素 → 文档位置）。
+ * CodeMirror 的 posAtCoords 在「隐藏标记 + 行内样式装饰」混合的行上会失效（落到行尾），
+ * 而 coordsAtPos（正向）始终准确——因此先用 posAtCoords 粗定位行，再在该行内
+ * 用正向坐标搜索离点击像素最近的位置。
+ */
+/**
+ * 该行是否带即时渲染装饰（隐藏标记/行内样式/行级样式）。
+ * CodeMirror 默认的像素→位置映射在这些行上不可靠（会落到行尾），点击需要接管。
+ * 通过 state facet 读取装饰（跨模块实例安全）。
+ */
+export function lineHasDecoration(view: EditorView, lineFrom: number, lineTo: number): boolean {
+  for (const val of view.state.facet(EditorView.decorations)) {
+    const set = typeof val === 'function' ? val(view) : val;
+    const iter = set.iter(lineFrom);
+    while (iter.value) {
+      if (iter.from > lineTo) break; // 已越过该行
+      // line 装饰是行首的点区间（from==to==行首），replace/mark 装饰跨字符
+      if (iter.to > lineFrom || iter.from === lineFrom) return true;
+      iter.next();
+    }
+  }
+  return false;
+}
+
+export function posFromClick(view: EditorView, x: number, y: number): number | null {
+  // 不经过行定位（块高度表在装饰行上同样有偏差），直接在可视区内
+  // 对 y 命中该行的所有位置做正向坐标搜索，取离点击 x 最近的位置
+  let best: number | null = null;
+  let bestDist = Infinity;
+  const from = view.state.doc.lineAt(view.viewport.from).from;
+  const toLine = view.state.doc.lineAt(view.viewport.to);
+  const to = toLine.to;
+  for (let p = from; p <= to; p++) {
+    const c = view.coordsAtPos(p);
+    if (!c) continue;
+    if (y < c.top - 6 || y > c.bottom + 6) continue;
+    const d = Math.abs((c.left + c.right) / 2 - x);
+    if (d < bestDist) {
+      bestDist = d;
+      best = p;
+    }
+  }
+  return best;
+}
+
+/**
  * 点击定位：若位置落在被隐藏的语法标记（replace 装饰）内，
  * 吸附到该隐藏区间的最近边界，保证"点哪儿光标就在哪儿"。
  */
@@ -381,14 +453,14 @@ export function resolveVisiblePos(view: EditorView, pos: number): number {
       return pos - bi.from <= bi.to - pos ? bi.from : bi.to;
     }
   }
-  const plugin = view.plugin(livePreviewPlugin);
-  if (!plugin) return pos;
-  // RangeSet 迭代器停在第一个与 pos 相关的区间：要么覆盖 pos，要么在 pos 之后
-  const iter = plugin.decorations.iter(pos);
-  if (iter.value && iter.from <= pos && pos < iter.to) {
-    // 无 class 的是 replace（隐藏）装饰；mark/line 装饰都带 class
-    if (!iter.value.spec.class) {
-      return pos - iter.from <= iter.to - pos ? iter.from : iter.to;
+  for (const val of view.state.facet(EditorView.decorations)) {
+    const set = typeof val === 'function' ? val(view) : val;
+    const iter = set.iter(pos);
+    if (iter.value && iter.from <= pos && pos < iter.to) {
+      // 无 class 的是 replace（隐藏）装饰；mark/line 装饰都带 class
+      if (!iter.value.spec.class) {
+        return pos - iter.from <= iter.to - pos ? iter.from : iter.to;
+      }
     }
   }
   return pos;

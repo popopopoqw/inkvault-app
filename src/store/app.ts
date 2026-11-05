@@ -23,11 +23,14 @@ interface AppState {
   docs: Record<string, DecryptedDoc>;
   activeId: string | null;
   expanded: Record<string, boolean>;
+  reveal: { path: string; lineNo: number } | null;
   saveState: SaveState;
   toast: string | null;
 
   boot: () => Promise<void>;
   selectDoc: (id: string) => void;
+  openSearchHit: (path: string, lineNo: number) => void;
+  clearReveal: () => void;
   toggleFolder: (id: string) => void;
   createNode: (parentId: string | null, isFolder: boolean, initialContent?: string) => Promise<void>;
   createNodeNamed: (parentId: string | null, isFolder: boolean, name: string) => Promise<void>;
@@ -137,6 +140,7 @@ export const useStore = create<AppState>()((set, get) => ({
   docs: {},
   activeId: null,
   expanded: {},
+  reveal: null,
   saveState: 'idle',
   toast: null,
 
@@ -164,6 +168,14 @@ export const useStore = create<AppState>()((set, get) => ({
       set({ phase: 'boot', bootError: '本地笔记库读取失败，请重试' });
     }
   },
+
+  // 从搜索结果跳转：打开文档并把光标定位到目标行（EditorPane 消费后清空）
+  openSearchHit: (path: string, lineNo: number) => {
+    void get().flush();
+    set({ activeId: path, reveal: { path, lineNo } });
+  },
+
+  clearReveal: () => set({ reveal: null }),
 
   selectDoc: (id) => {
     // 切换文档前把未落盘的内容先写出去，防止防抖窗口内切换导致丢失
@@ -358,6 +370,9 @@ export const useStore = create<AppState>()((set, get) => ({
     }
   },
 }));
+
+// 搜索跳转定位的订阅 hook
+export const useStoreReveal = () => useStore((s) => s.reveal);
 
 // 调试与自动化测试辅助（只读访问 store 状态）
 if (typeof window !== 'undefined') {

@@ -115,6 +115,19 @@ export function onFsChange(callback: (paths: string[]) => void): Promise<() => v
   return listen<string[]>('fs-change', (event) => callback(event.payload));
 }
 
+// ---- 全库搜索 ----
+
+export interface SearchHit {
+  path: string;
+  title: string;
+  line_no: number;
+  line_text: string;
+}
+
+export function searchAll(query: string): Promise<SearchHit[]> {
+  return invoke<SearchHit[]>('search_all', { query });
+}
+
 // ---- 版本历史 ----
 
 export interface VersionInfo {

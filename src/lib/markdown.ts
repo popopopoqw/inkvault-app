@@ -1,11 +1,13 @@
 import MarkdownIt from 'markdown-it';
+import DOMPurify from 'dompurify';
 // common 子集含 ~40 种常用语言，比全量 190+ 语言小得多
 import hljs from 'highlight.js/lib/common';
 import type { TocEntry } from './types';
 
 const md = new MarkdownIt({
-  // 出于 XSS 安全考虑，禁止渲染内嵌 HTML（markdown-it 会将其转义为文本）
-  html: false,
+  // 允许内嵌 HTML 仅为支持 <span style="color/background-color"> 文字着色；
+  // 渲染结果经 DOMPurify 严格白名单清洗（见 sanitizeHtml），其余 HTML 一律移除
+  html: true,
   linkify: true,
   highlight(str: string, lang: string): string {
     if (lang && hljs.getLanguage(lang)) {
@@ -37,9 +39,39 @@ export interface RenderResult {
   toc: TocEntry[];
 }
 
+/**
+ * XSS 防线：html:true 开启后所有内嵌 HTML 经此清洗。
+ * 只放行 <span> 的 color / background-color 两个内联样式，其余标签属性全部移除。
+ */
+let purifyHooked = false;
+function ensureHook() {
+  if (purifyHooked) return;
+  purifyHooked = true;
+  // style 值内容过滤：HTML 节点只放行颜色与对齐（mermaid SVG 内部样式放行）
+  DOMPurify.addHook('uponSanitizeAttribute', (node, data) => {
+    if (data.attrName !== 'style') return;
+    const inSvg = node.namespaceURI?.includes('svg');
+    if (inSvg) return;
+    const v = (data.attrValue ?? '').trim();
+    const ok = /^(color|background-color):\s*#[0-9a-fA-F]{3,8}\s*;?$/i.test(v);
+    if (!ok) data.keepAttr = false;
+  });
+}
+
+export function sanitizeHtml(html: string): string {
+  ensureHook();
+  return DOMPurify.sanitize(html, {
+    ALLOWED_TAGS: ['span', 'br', 'b', 'strong', 'i', 'em', 'code', 'del', 's', 'mark', 'a', 'img', 'input', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'pre', 'blockquote', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'div', 'hr', 'svg', 'path', 'rect', 'circle', 'g', 'text', 'span', 'tspan', 'polygon', 'line'],
+    ALLOWED_ATTR: ['style', 'href', 'title', 'target', 'rel', 'src', 'alt', 'class', 'id', 'd', 'fill', 'stroke', 'stroke-width', 'viewBox', 'width', 'height', 'x', 'y', 'x1', 'y1', 'x2', 'y2', 'cx', 'cy', 'r', 'rx', 'ry', 'points', 'transform', 'aria-hidden', 'checked', 'disabled', 'type', 'font-family', 'font-size', 'text-anchor', 'xmlns'],
+    ALLOW_DATA_ATTR: false,
+    // 放行 blob:（本地图片）与 asset:（附件协议）图片地址
+    ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|blob|asset):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
+  });
+}
+
 /** 直接把 markdown 源码渲染成 HTML 片段（块级 widget 复用） */
 export function renderHtml(src: string): string {
-  return md.render(src);
+  return sanitizeHtml(md.render(src));
 }
 
 // 从 markdown 源码提取标题（含行号），供所见即所得模式的大纲定位使用
@@ -110,5 +142,5 @@ export function renderMarkdown(source: string): RenderResult {
     a.setAttribute('rel', 'noopener noreferrer');
   });
 
-  return { html: container.innerHTML, toc };
+  return { html: sanitizeHtml(container.innerHTML), toc };
 }

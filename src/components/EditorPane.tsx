@@ -1,13 +1,14 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import CodeMirror, { EditorSelection, EditorView, Prec, keymap } from '@uiw/react-codemirror';
 import { markdown } from '@codemirror/lang-markdown';
 import { Table } from '@lezer/markdown';
 import { languages } from '@codemirror/language-data';
-import { livePreview, resolveVisiblePos } from '../lib/livePreview';
+import { livePreview, lineHasDecoration, posFromClick, resolveVisiblePos } from '../lib/livePreview';
 import { findImageFile, insertImageFile } from '../lib/assets';
-import { useStore } from '../store/app';
+import { useStore, useStoreReveal } from '../store/app';
 import { IconLink, IconQuote, IconList, IconTask, IconTable, IconCode, IconCodeInline, IconImage, IconClock } from './Icons';
+import { ColorPicker } from './ColorPicker';
 
 function wrapSelection(view: EditorView, before: string, after: string) {
   const { state } = view;
@@ -69,6 +70,33 @@ function insertBlock(view: EditorView, text: string) {
 
 const TABLE_SNIPPET = '| 列1 | 列2 | 列3 |\n| --- | --- | --- |\n|  |  |  |\n|  |  |  |';
 
+// 对选区应用文字/背景颜色（生成受白名单保护的 <span style>；null 清除）
+function applyColor(view: EditorView, kind: 'color' | 'background-color', hex: string | null) {
+  const sel = view.state.selection.main;
+  if (sel.empty) return;
+  let text = view.state.sliceDoc(sel.from, sel.to);
+  text = text.replace(/<\/?(?:span|mark)[^>]*>/gi, '');
+  if (hex !== null) {
+    text = `<span style="${kind}: ${hex}">${text}</span>`;
+  }
+  view.dispatch({
+    changes: { from: sel.from, to: sel.to, insert: text },
+    selection: { anchor: sel.from, head: sel.from + text.length },
+  });
+  view.focus();
+}
+
+// Cmd/Ctrl+Shift+H：切换背景高亮（默认黄；已高亮则清除）
+function toggleHighlight(view: EditorView) {
+  const sel = view.state.selection.main;
+  const text = view.state.sliceDoc(sel.from, sel.to);
+  if (/<span style="background-color:[^>]*>/i.test(text)) {
+    applyColor(view, 'background-color', null);
+  } else {
+    applyColor(view, 'background-color', '#fef08a');
+  }
+}
+
 // 在光标处插入当前日期时间（YYYY-MM-DD HH:mm）
 function insertTimestamp(view: EditorView) {
   const d = new Date();
@@ -88,17 +116,17 @@ interface Tool {
 }
 
 const TOOLS: Tool[] = [
-  { label: 'H1', title: '一级标题', run: (v) => toggleLinePrefix(v, '# ') },
-  { label: 'H2', title: '二级标题', run: (v) => toggleLinePrefix(v, '## ') },
-  { label: 'H3', title: '三级标题', run: (v) => toggleLinePrefix(v, '### ') },
+  { label: 'H1', title: '一级标题 (Cmd/Ctrl+Shift+1)', run: (v) => toggleLinePrefix(v, '# ') },
+  { label: 'H2', title: '二级标题 (Cmd/Ctrl+Shift+2)', run: (v) => toggleLinePrefix(v, '## ') },
+  { label: 'H3', title: '三级标题 (Cmd/Ctrl+Shift+3)', run: (v) => toggleLinePrefix(v, '### ') },
   { label: 'B', title: '粗体 (Cmd/Ctrl+B)', run: (v) => wrapSelection(v, '**', '**') },
   { label: 'I', title: '斜体 (Cmd/Ctrl+I)', run: (v) => wrapSelection(v, '*', '*') },
-  { label: '', title: '行内代码', icon: <IconCodeInline />, run: (v) => wrapSelection(v, '`', '`') },
+  { label: '', title: '行内代码 (Cmd/Ctrl+E)', icon: <IconCodeInline />, run: (v) => wrapSelection(v, '`', '`') },
   { label: '', title: '链接 (Cmd/Ctrl+K)', icon: <IconLink />, run: (v) => wrapSelection(v, '[', '](https://)') },
   { label: '', title: '引用', icon: <IconQuote />, run: (v) => toggleLinePrefix(v, '> ') },
-  { label: '', title: '无序列表', icon: <IconList />, run: (v) => toggleLinePrefix(v, '- ') },
-  { label: '1.', title: '有序列表', run: (v) => toggleLinePrefix(v, '1. ') },
-  { label: '', title: '任务列表', icon: <IconTask />, run: (v) => toggleLinePrefix(v, '- [ ] ') },
+  { label: '', title: '无序列表 (Cmd/Ctrl+Shift+8)', icon: <IconList />, run: (v) => toggleLinePrefix(v, '- ') },
+  { label: '1.', title: '有序列表 (Cmd/Ctrl+Shift+7)', run: (v) => toggleLinePrefix(v, '1. ') },
+  { label: '', title: '任务列表 (Cmd/Ctrl+Shift+9)', icon: <IconTask />, run: (v) => toggleLinePrefix(v, '- [ ] ') },
   { label: '', title: '表格', icon: <IconTable />, run: (v) => insertBlock(v, TABLE_SNIPPET) },
   { label: '', title: '代码块', icon: <IconCode />, run: (v) => insertBlock(v, CODE_SNIPPET) },
   { label: '', title: '插入当前日期时间 (Cmd/Ctrl+;)', icon: <IconClock />, run: insertTimestamp },
@@ -115,6 +143,18 @@ export function EditorPane({
 }) {
   const viewRef = useRef<EditorView | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [colorMenu, setColorMenu] = useState<'color' | 'background-color' | null>(null);
+
+  // 搜索跳转：定位光标到目标行并滚动
+  const reveal = useStoreReveal();
+  useEffect(() => {
+    if (!reveal || reveal.path !== docId || !viewRef.current) return;
+    const view = viewRef.current;
+    const lineNo = Math.min(reveal.lineNo, view.state.doc.lines);
+    const pos = view.state.doc.line(lineNo).from;
+    view.dispatch({ selection: { anchor: pos }, effects: EditorView.scrollIntoView(pos, { y: 'center' }) });
+    useStore.getState().clearReveal();
+  }, [reveal, docId]);
 
   // 强制同步：store 主动更新内容（恢复版本/外部文件变化）时替换编辑器文档。
   // @uiw/react-codemirror 的受控 value 对外部更新不可靠，必须显式 dispatch。
@@ -134,16 +174,28 @@ export function EditorPane({
       EditorView.domEventHandlers({
         // 点击落点：命中被隐藏的语法标记区域时，光标吸附到最近的可见位置
         mousedown(event, view) {
-          const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
+          if (event.button !== 0) return false;
+          // 三击快速选中整行（接管行与普通行统一支持）
+          if (event.detail >= 3) {
+            const pos = posFromClick(view, event.clientX, event.clientY) ?? view.posAtCoords({ x: event.clientX, y: event.clientY });
+            if (pos == null) return false;
+            const line = view.state.doc.lineAt(pos);
+            view.dispatch({ selection: { anchor: line.from, head: line.to } });
+            return true;
+          }
+          // 纯文本行：交给 CodeMirror 默认处理（保留拖动选择）
+          // 带渲染装饰的行：CM 的像素→位置映射不可靠（会落到行尾/别处），接管
+          const pos = posFromClick(view, event.clientX, event.clientY);
           if (pos == null) return false;
+          const line = view.state.doc.lineAt(pos);
+          if (!lineHasDecoration(view, line.from, line.to)) return false;
           const target = resolveVisiblePos(view, pos);
-          if (target === pos) return false; // 正常可见位置，交给 CodeMirror 默认处理（保留拖选）
           view.dispatch({ selection: { anchor: target } });
           return true;
         },
         // 双击选中文本：选中点击位置所在的连续词语段（字母/数字/汉字，遇标点空白停止）
         dblclick(event, view) {
-          const clicked = view.posAtCoords({ x: event.clientX, y: event.clientY });
+          const clicked = posFromClick(view, event.clientX, event.clientY);
           if (clicked == null) return false;
           const pos = resolveVisiblePos(view, clicked);
           const line = view.state.doc.lineAt(pos);
@@ -178,6 +230,14 @@ export function EditorPane({
           { key: 'Mod-i', run: (v) => (wrapSelection(v, '*', '*'), true) },
           { key: 'Mod-k', run: (v) => (wrapSelection(v, '[', '](https://)'), true) },
           { key: 'Mod-;', run: (v) => (insertTimestamp(v), true) },
+          { key: 'Mod-Shift-1', run: (v) => (toggleLinePrefix(v, '# '), true) },
+          { key: 'Mod-Shift-2', run: (v) => (toggleLinePrefix(v, '## '), true) },
+          { key: 'Mod-Shift-3', run: (v) => (toggleLinePrefix(v, '### '), true) },
+          { key: 'Mod-Shift-7', run: (v) => (toggleLinePrefix(v, '1. '), true) },
+          { key: 'Mod-Shift-8', run: (v) => (toggleLinePrefix(v, '- '), true) },
+          { key: 'Mod-Shift-9', run: (v) => (toggleLinePrefix(v, '- [ ] '), true) },
+          { key: 'Mod-e', run: (v) => (wrapSelection(v, '`', '`'), true) },
+          { key: 'Mod-Shift-h', run: (v) => (toggleHighlight(v), true) },
         ])
       ),
     ],
@@ -199,6 +259,34 @@ export function EditorPane({
         >
           <IconImage />
         </button>
+        <div className="color-tool">
+          <button
+            title="文字颜色（先选中文字）"
+            style={{ color: '#dc2626' }}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => setColorMenu(colorMenu === 'color' ? null : 'color')}
+          >
+            A
+          </button>
+          <button
+            title="背景颜色（先选中文字，Cmd/Ctrl+Shift+H 快速高亮）"
+            style={{ background: 'linear-gradient(180deg, transparent 55%, #fef08a 55%)' }}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => setColorMenu(colorMenu === 'background-color' ? null : 'background-color')}
+          >
+            A
+          </button>
+          {colorMenu && (
+            <ColorPicker
+              kind={colorMenu}
+              onPick={(hex) => {
+                if (viewRef.current) applyColor(viewRef.current, colorMenu, hex);
+                setColorMenu(null);
+              }}
+              onClose={() => setColorMenu(null)}
+            />
+          )}
+        </div>
         <input
           ref={fileInputRef}
           type="file"
