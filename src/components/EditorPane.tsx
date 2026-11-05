@@ -4,7 +4,7 @@ import CodeMirror, { EditorSelection, EditorView, Prec, keymap } from '@uiw/reac
 import { markdown } from '@codemirror/lang-markdown';
 import { Table } from '@lezer/markdown';
 import { languages } from '@codemirror/language-data';
-import { livePreview, resolveVisiblePos } from '../lib/livePreview';
+import { livePreview, lineHasDecoration, posFromClick, resolveVisiblePos } from '../lib/livePreview';
 import { findImageFile, insertImageFile } from '../lib/assets';
 import { useStore } from '../store/app';
 import { IconLink, IconQuote, IconList, IconTask, IconTable, IconCode, IconCodeInline, IconImage, IconClock } from './Icons';
@@ -134,16 +134,20 @@ export function EditorPane({
       EditorView.domEventHandlers({
         // 点击落点：命中被隐藏的语法标记区域时，光标吸附到最近的可见位置
         mousedown(event, view) {
-          const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
+          // 纯文本行：交给 CodeMirror 默认处理（保留拖动选择）
+          // 带渲染装饰的行：CM 的像素→位置映射不可靠（会落到行尾/别处），接管
+          if (event.button !== 0) return false;
+          const pos = posFromClick(view, event.clientX, event.clientY);
           if (pos == null) return false;
+          const line = view.state.doc.lineAt(pos);
+          if (!lineHasDecoration(view, line.from, line.to)) return false;
           const target = resolveVisiblePos(view, pos);
-          if (target === pos) return false; // 正常可见位置，交给 CodeMirror 默认处理（保留拖选）
           view.dispatch({ selection: { anchor: target } });
           return true;
         },
         // 双击选中文本：选中点击位置所在的连续词语段（字母/数字/汉字，遇标点空白停止）
         dblclick(event, view) {
-          const clicked = view.posAtCoords({ x: event.clientX, y: event.clientY });
+          const clicked = posFromClick(view, event.clientX, event.clientY);
           if (clicked == null) return false;
           const pos = resolveVisiblePos(view, clicked);
           const line = view.state.doc.lineAt(pos);
