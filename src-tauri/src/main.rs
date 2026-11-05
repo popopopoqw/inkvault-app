@@ -62,8 +62,8 @@ static ROOT: RwLock<Option<PathBuf>> = RwLock::new(None);
 // ---- 外部文件变化监听 ----
 static WATCH_GEN: AtomicU64 = AtomicU64::new(0);
 static WATCHED: RwLock<Option<(u64, PathBuf)>> = RwLock::new(None);
-static SELF_WRITES: RwLock<std::collections::HashMap<PathBuf, std::time::Instant>> =
-    RwLock::new(std::collections::HashMap::new());
+static SELF_WRITES: LazyLock<RwLock<std::collections::HashMap<PathBuf, std::time::Instant>>> =
+    LazyLock::new(|| RwLock::new(std::collections::HashMap::new()));
 
 /// 记录「应用自己写过的路径 + 时间」，监听线程据此过滤自身触发的文件事件
 fn note_self_write(path: &Path) {
@@ -89,9 +89,8 @@ fn is_all_self_writes(paths: &[PathBuf]) -> bool {
 
 /// 递归监听笔记库根目录，外部变化通过 `fs-change` 事件推给前端；重复调用自动换根
 fn ensure_watch(app: &tauri::AppHandle, root: &Path) {
-    {
-        let watched = WATCHED.read().ok();
-        if let Some((_, r)) = watched.as_ref() {
+    if let Some(guard) = WATCHED.read().ok() {
+        if let Some((_, r)) = &*guard {
             if r == root {
                 return;
             }
@@ -430,8 +429,8 @@ fn version_file_name(v: &VersionInfo) -> String {
     }
 }
 
-static LAST_SNAPSHOT: RwLock<std::collections::HashMap<PathBuf, u64>> =
-    RwLock::new(std::collections::HashMap::new());
+static LAST_SNAPSHOT: LazyLock<RwLock<std::collections::HashMap<PathBuf, u64>>> =
+    LazyLock::new(|| RwLock::new(std::collections::HashMap::new()));
 
 /// 写盘后调用：把「旧内容 → 新内容」的变化存为增量快照。
 /// force = true 时无视间隔（恢复版本前强制存档用）。
