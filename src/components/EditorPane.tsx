@@ -6,7 +6,7 @@ import { Table } from '@lezer/markdown';
 import { languages } from '@codemirror/language-data';
 import { livePreview, lineHasDecoration, posFromClick, resolveVisiblePos } from '../lib/livePreview';
 import { findImageFile, insertImageFile } from '../lib/assets';
-import { useStore } from '../store/app';
+import { useStore, useStoreReveal } from '../store/app';
 import { IconLink, IconQuote, IconList, IconTask, IconTable, IconCode, IconCodeInline, IconImage, IconClock } from './Icons';
 import { ColorPicker } from './ColorPicker';
 
@@ -133,6 +133,17 @@ export function EditorPane({
   const viewRef = useRef<EditorView | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [colorMenu, setColorMenu] = useState<'color' | 'background-color' | null>(null);
+
+  // 搜索跳转：定位光标到目标行并滚动
+  const reveal = useStoreReveal();
+  useEffect(() => {
+    if (!reveal || reveal.path !== docId || !viewRef.current) return;
+    const view = viewRef.current;
+    const lineNo = Math.min(reveal.lineNo, view.state.doc.lines);
+    const pos = view.state.doc.line(lineNo).from;
+    view.dispatch({ selection: { anchor: pos }, effects: EditorView.scrollIntoView(pos, { y: 'center' }) });
+    useStore.getState().clearReveal();
+  }, [reveal, docId]);
 
   // 强制同步：store 主动更新内容（恢复版本/外部文件变化）时替换编辑器文档。
   // @uiw/react-codemirror 的受控 value 对外部更新不可靠，必须显式 dispatch。

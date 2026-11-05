@@ -193,6 +193,22 @@ function invokeMock<T>(cmd: string, args: Record<string, unknown> = {}): Promise
           resolve({ root, select_path: select } as T);
           return;
         }
+        case 'search_all': {
+          const q = String(args.query ?? '').trim().toLowerCase();
+          if (!q) { resolve([] as T); return; }
+          const hits = [];
+          for (const [path, e] of fs.entries()) {
+            if (e.type !== 'file' || !path.endsWith('.md')) continue;
+            if (base(path).startsWith('.')) continue;
+            for (const [i, line] of (e.content ?? '').split('\n').entries()) {
+              if (line.toLowerCase().includes(q)) {
+                hits.push({ path, title: base(path).replace(/\.md$/i, ''), line_no: i + 1, line_text: line.trim().slice(0, 80) });
+              }
+            }
+          }
+          resolve(hits as T);
+          return;
+        }
         case 'list_versions': {
           const list = history.get(args.path as string) ?? [];
           resolve(list.map((v) => ({ ...v.meta })) as T);

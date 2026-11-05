@@ -729,6 +729,69 @@ fn save_asset(app: tauri::AppHandle, ext: String, data: Vec<u8>) -> Result<Strin
     Ok(id)
 }
 
+// ---------------- 全库搜索 ----------------
+
+#[derive(Serialize, Clone)]
+pub struct SearchHit {
+    pub path: String,
+    pub title: String,
+    pub line_no: u32,
+    pub line_text: String,
+}
+
+/// 跨所有 .md 文档搜索（默认忽略大小写），返回命中行（每行一条，用于跳转定位）
+#[tauri::command]
+fn search_all(app: tauri::AppHandle, query: String, case_sensitive: Option<bool>) -> Result<Vec<SearchHit>, String> {
+    let q = query.trim().to_string();
+    if q.is_empty() {
+        return Ok(Vec::new());
+    }
+    let cs = case_sensitive.unwrap_or(false);
+    let root = vault_root(&app)?;
+    let mut out: Vec<SearchHit> = Vec::new();
+    let mut stack = vec![root.clone()];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = fs::read_dir(&dir) else { continue };
+        let mut items: Vec<_> = entries.flatten().collect();
+        items.sort_by_key(|e| e.file_name());
+        for e in items {
+            if out.len() >= 500 {
+                break;
+            }
+            let name = e.file_name().to_string_lossy().to_string();
+            if name.starts_with('.') {
+                continue;
+            }
+            let p = e.path();
+            if p.is_dir() {
+                stack.push(p);
+                continue;
+            }
+            if !name.to_lowercase().ends_with(".md") {
+                continue;
+            }
+            let Ok(content) = fs::read_to_string(&p) else { continue };
+            for (i, line) in content.lines().enumerate() {
+                let hit = if cs {
+                    line.contains(&q)
+                } else {
+                    line.to_lowercase().contains(&q.to_lowercase())
+                };
+                if hit {
+                    let preview: String = line.trim().chars().take(80).collect();
+                    out.push(SearchHit {
+                        path: p.to_string_lossy().to_string(),
+                        title: name.trim_end_matches(".md").trim_end_matches(".markdown").to_string(),
+                        line_no: i as u32 + 1,
+                        line_text: preview,
+                    });
+                }
+            }
+        }
+    }
+    Ok(out)
+}
+
 // ---------------- 版本历史命令 ----------------
 
 #[derive(Serialize, Clone)]
@@ -813,6 +876,7 @@ fn main() {
             move_node,
             delete_node,
             save_asset,
+            search_all,
             list_versions,
             read_version_diff,
             read_version,
