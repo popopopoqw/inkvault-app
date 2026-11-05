@@ -41,6 +41,7 @@ interface AppState {
 }
 
 const dirty = new Set<string>();
+let bootStarted = false; // StrictMode 会双执行启动副作用，防重复初始化（如双建欢迎文档）
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 let flushing = false;
 let flushQueued = false;
@@ -132,6 +133,8 @@ export const useStore = create<AppState>()((set, get) => ({
   dismissToast: () => set({ toast: null }),
 
   boot: async () => {
+    if (bootStarted) return;
+    bootStarted = true;
     try {
       const docs = await desktopListDocs();
       const first = childrenOf(docs, null).find((d) => !d.isFolder);
@@ -140,6 +143,7 @@ export const useStore = create<AppState>()((set, get) => ({
         await get().createNode(null, false, WELCOME_CONTENT);
       }
     } catch {
+      bootStarted = false; // 允许失败后重试
       set({ phase: 'boot', bootError: '本地笔记库读取失败，请重试' });
     }
   },

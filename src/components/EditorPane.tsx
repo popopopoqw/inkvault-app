@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import CodeMirror, { EditorSelection, EditorView, Prec, keymap } from '@uiw/react-codemirror';
 import { markdown } from '@codemirror/lang-markdown';
 import { languages } from '@codemirror/language-data';
-import { livePreviewPlugin, resolveVisiblePos } from '../lib/livePreview';
+import { livePreview, resolveVisiblePos } from '../lib/livePreview';
 import { findImageFile, insertImageFile } from '../lib/assets';
 import { useStore } from '../store/app';
 import { IconLink, IconQuote, IconList, IconTask, IconTable, IconCode, IconCodeInline, IconImage } from './Icons';
@@ -107,7 +107,7 @@ export function EditorPane({
   const extensions = useMemo(
     () => [
       markdown({ codeLanguages: languages }),
-      livePreviewPlugin,
+      livePreview,
       EditorView.domEventHandlers({
         // 点击落点：命中被隐藏的语法标记区域时，光标吸附到最近的可见位置
         mousedown(event, view) {

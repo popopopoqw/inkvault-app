@@ -1,5 +1,5 @@
 import { syntaxTree } from '@codemirror/language';
-import { Range } from '@codemirror/state';
+import { EditorState, Range, StateField } from '@codemirror/state';
 import { Decoration, DecorationSet, EditorView, ViewPlugin, ViewUpdate, WidgetType } from '@codemirror/view';
 import { resolveAssetUrl } from './assets';
 import { renderMermaidToSvg } from './mermaid';
@@ -103,7 +103,7 @@ function selectionLines(state: EditorView['state']): Set<number> {
   return lines;
 }
 
-function buildDecorations(view: EditorView): DecorationSet {
+function buildInlineDecorations(view: EditorView): DecorationSet {
   const state = view.state;
   const cursorLines = selectionLines(state);
   const ranges: Range<Decoration>[] = [];
@@ -171,26 +171,9 @@ function buildDecorations(view: EditorView): DecorationSet {
           const info = node.node.getChild('CodeInfo');
           for (const child of node.node.getChildren('CodeText')) codeText = { from: child.from, to: child.to };
 
-          // mermaid 块：光标不在块内时整块渲染成图
+          // mermaid 块：整块装饰由 mermaidBlockField（StateField）负责，行内不处理
           const lang = info && info.to > info.from ? state.sliceDoc(info.from, info.to).trim() : '';
-          if (lang === 'mermaid' && codeText) {
-            const firstLine = state.doc.lineAt(node.from).number;
-            const lastLine = state.doc.lineAt(node.to).number;
-            const cursorInside = state.selection.ranges.some((r) => {
-              const n = state.doc.lineAt(r.head).number;
-              return n >= firstLine && n <= lastLine;
-            });
-            if (!cursorInside) {
-              const from = state.doc.lineAt(node.from).from;
-              const to = state.doc.lineAt(node.to).to;
-              ranges.push(
-                Decoration.replace({ widget: new MermaidWidget(state.sliceDoc(codeText.from, codeText.to)), block: true }).range(from, to)
-              );
-              break;
-            }
-            // 光标在块内：全部显示源码，方便编辑
-            break;
-          }
+          if (lang === 'mermaid') break;
 
           const nearAnyFence = marks.some((m) => cursorLines.has(state.doc.lineAt(m.from).number));
           if (marks.length >= 1 && !nearAnyFence) {
@@ -288,22 +271,74 @@ export const livePreviewPlugin = ViewPlugin.fromClass(
   class {
     decorations: DecorationSet;
     constructor(view: EditorView) {
-      this.decorations = buildDecorations(view);
+      this.decorations = buildInlineDecorations(view);
     }
     update(update: ViewUpdate) {
       if (update.docChanged || update.selectionSet || update.viewportChanged) {
-        this.decorations = buildDecorations(update.view);
+        this.decorations = buildInlineDecorations(update.view);
       }
     }
   },
   { decorations: (plugin) => plugin.decorations }
 );
 
+// 块级装饰（整块 mermaid 图）必须由 StateField 提供，ViewPlugin 会抛
+// "Block decorations may not be specified via plugins"
+function buildBlockDecorations(state: EditorState): DecorationSet {
+  const ranges: Range<Decoration>[] = [];
+  syntaxTree(state).iterate({
+    enter(node) {
+      if (node.name !== 'FencedCode') return;
+      const info = node.node.getChild('CodeInfo');
+      const codeText = node.node.getChildren('CodeText')[0];
+      if (!codeText) return;
+      const lang = info && info.to > info.from ? state.sliceDoc(info.from, info.to).trim() : '';
+      if (lang !== 'mermaid') return;
+      const firstLine = state.doc.lineAt(node.from).number;
+      const lastLine = state.doc.lineAt(node.to).number;
+      const cursorInside = state.selection.ranges.some((r) => {
+        const n = state.doc.lineAt(r.head).number;
+        return n >= firstLine && n <= lastLine;
+      });
+      if (cursorInside) return; // 光标在块内显示源码
+      const from = state.doc.lineAt(node.from).from;
+      const to = state.doc.lineAt(node.to).to;
+      ranges.push(
+        Decoration.replace({ widget: new MermaidWidget(state.sliceDoc(codeText.from, codeText.to)), block: true }).range(from, to)
+      );
+    },
+  });
+  return Decoration.set(ranges, true);
+}
+
+const mermaidBlockField = StateField.define<DecorationSet>({
+  create: buildBlockDecorations,
+  update(value, tr) {
+    if (tr.docChanged || tr.selection) return buildBlockDecorations(tr.state);
+    return value;
+  },
+});
+
+/** 编辑器即时渲染扩展（行内 ViewPlugin + 块级 StateField） */
+export const livePreview = [
+  livePreviewPlugin,
+  mermaidBlockField,
+  EditorView.decorations.compute([mermaidBlockField], (state) => state.field(mermaidBlockField)),
+] as const;
+
 /**
  * 点击定位：若位置落在被隐藏的语法标记（replace 装饰）内，
  * 吸附到该隐藏区间的最近边界，保证"点哪儿光标就在哪儿"。
  */
 export function resolveVisiblePos(view: EditorView, pos: number): number {
+  // 先查块级（mermaid 整块替换）
+  const blockDecos = view.state.field(mermaidBlockField, false);
+  if (blockDecos) {
+    const bi = blockDecos.iter(pos);
+    if (bi.value && bi.from <= pos && pos < bi.to) {
+      return pos - bi.from <= bi.to - pos ? bi.from : bi.to;
+    }
+  }
   const plugin = view.plugin(livePreviewPlugin);
   if (!plugin) return pos;
   // RangeSet 迭代器停在第一个与 pos 相关的区间：要么覆盖 pos，要么在 pos 之后
