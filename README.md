@@ -27,7 +27,7 @@ npm run tauri dev    # 需要本机安装 Rust 工具链（rustup）
 
 推送 `v*` 格式的 tag（如 `v0.1.0`）触发 GitHub Actions，用 tauri-action 构建三个产物：Apple Silicon dmg、Intel dmg、Windows NSIS 安装包，进入 Releases 草稿，确认后发布。
 
-应用未做代码签名：macOS 首次打开右键选"打开"，Windows 遇 SmartScreen 选"仍要运行"。
+应用未做代码签名：macOS 安装后如提示「已损坏」，在终端执行 `xattr -cr /Applications/inkvault.app` 后打开；Windows 遇 SmartScreen 选"仍要运行"。
 
 ## 目录结构
 
