@@ -54,6 +54,28 @@ jobs:
           releaseBody: |
             桌面客户端（macOS Apple Silicon / Intel，Windows x64）。
             未签名应用：macOS 首次打开请右键点应用选「打开」；Windows 如遇 SmartScreen 提示，选「更多信息 → 仍要运行」。
+            下载后可用 SHA256SUMS 校验文件完整性：`shasum -a 256 -c SHA256SUMS`（Windows: `certutil -hashfile 文件名 SHA256`）。
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
+
+  # 全平台产物到齐后生成校验和，随 Release 发布
+  checksums:
+    needs: build-desktop
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 生成 SHA256SUMS 并上传
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=$(python3 -c "import json;print(json.load(open('src-tauri/tauri.conf.json'))['version'])")
+          mkdir -p assets
+          gh release download "v${VERSION}" --dir assets --clobber
+          rm -f assets/SHA256SUMS
+          (cd assets && sha256sum * > ../SHA256SUMS)
+          cat SHA256SUMS
+          gh release upload "v${VERSION}" SHA256SUMS --repo "$GITHUB_REPOSITORY" --clobber
