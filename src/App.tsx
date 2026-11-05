@@ -115,16 +115,28 @@ function Workspace() {
     return () => window.removeEventListener('beforeunload', flush);
   }, []);
 
-  // Tauri 关窗钩子：beforeunload 的异步写盘来不及完成，必须拦截关闭、写完再关
+  // Tauri 关窗钩子：beforeunload 的异步写盘来不及完成，必须拦截关闭、写完再关。
+  // destroy 需要在 capabilities 授权 core:window:allow-destroy；失败时兜底 close 放行。
   useEffect(() => {
     let unlisten: (() => void) | undefined;
     let disposed = false;
+    let closing = false;
     const win = getCurrentWindow();
     void win
       .onCloseRequested(async (event) => {
+        if (closing) return; // 兜底 close 触发的第二次请求：直接放行关闭
+        closing = true;
         event.preventDefault();
-        await useStore.getState().flush();
-        await win.destroy();
+        try {
+          await useStore.getState().flush();
+        } catch {
+          /* 写盘失败也允许关闭，避免窗口永远关不掉 */
+        }
+        try {
+          await win.destroy();
+        } catch {
+          await win.close();
+        }
       })
       .then((fn) => {
         if (disposed) fn();

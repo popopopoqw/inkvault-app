@@ -1,6 +1,12 @@
 {
   "identifier": "default",
   "description": "主窗口默认权限 + 文件对话框",
-  "windows": ["main"],
-  "permissions": ["core:default", "dialog:default"]
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:default",
+    "dialog:default",
+    "core:window:allow-destroy"
+  ]
 }
