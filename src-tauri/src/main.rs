@@ -361,11 +361,49 @@ fn apply_delta(old: &[String], ops: &[DiffOp]) -> Result<Vec<String>, String> {
     Ok(out)
 }
 
+/// 相对路径转义（分隔符 → __），用于历史目录命名
+fn escape_rel(root: &Path, doc: &Path) -> String {
+    let rel = doc.strip_prefix(root).unwrap_or(doc);
+    rel.to_string_lossy().replace(['/', '\\', std::path::MAIN_SEPARATOR], "__")
+}
+
 /// 历史目录：.history/<文档相对路径，分隔符替换为 __>/
 fn history_dir(root: &Path, doc: &Path) -> PathBuf {
-    let rel = doc.strip_prefix(root).unwrap_or(doc);
-    let escaped = rel.to_string_lossy().replace(['/', '\\', std::path::MAIN_SEPARATOR], "__");
-    root.join(HISTORY_DIR).join(escaped)
+    root.join(HISTORY_DIR).join(escape_rel(root, doc))
+}
+
+/// 删除文档（或文件夹）时清理历史：自身 + 文件夹内所有子孙文档的快照目录
+fn remove_history_for(root: &Path, p: &Path) {
+    let hist_root = root.join(HISTORY_DIR);
+    let _ = fs::remove_dir_all(hist_root.join(escape_rel(root, p)));
+    let prefix = format!("{}__", escape_rel(root, p));
+    if let Ok(rd) = fs::read_dir(&hist_root) {
+        for e in rd.flatten() {
+            if e.file_name().to_string_lossy().starts_with(&prefix) {
+                let _ = fs::remove_dir_all(e.path());
+            }
+        }
+    }
+}
+
+/// 改名/移动时历史目录跟随：自身 + 文件夹内所有子孙文档的快照目录前缀替换
+fn remap_history_dir(root: &Path, old: &Path, new: &Path) {
+    let hist_root = root.join(HISTORY_DIR);
+    let old_esc = escape_rel(root, old);
+    let new_esc = escape_rel(root, new);
+    let h_old = hist_root.join(&old_esc);
+    if h_old.exists() {
+        let _ = fs::rename(&h_old, hist_root.join(&new_esc));
+    }
+    let prefix = format!("{old_esc}__");
+    if let Ok(rd) = fs::read_dir(&hist_root) {
+        for e in rd.flatten() {
+            let name = e.file_name().to_string_lossy().to_string();
+            if let Some(rest) = name.strip_prefix(&prefix) {
+                let _ = fs::rename(e.path(), hist_root.join(format!("{new_esc}__{rest}")));
+            }
+        }
+    }
 }
 
 fn now_ms() -> u64 {
@@ -617,11 +655,8 @@ fn rename_node(app: tauri::AppHandle, path: String, new_name: String) -> Result<
     }
     note_self_write(&old);
     note_self_write(&target);
-    // 文档的历史目录跟着改名
-    let h_old = history_dir(&root, &old);
-    if h_old.exists() {
-        let _ = fs::rename(&h_old, history_dir(&root, &target));
-    }
+    // 历史目录跟着改名（含文件夹内子文档的快照目录）
+    remap_history_dir(&root, &old, &target);
     Ok(PathChange {
         old_path: old.to_string_lossy().to_string(),
         new_path: target.to_string_lossy().to_string(),
@@ -650,10 +685,7 @@ fn move_node(app: tauri::AppHandle, path: String, new_parent: Option<String>) ->
     fs::rename(&old, &target).map_err(|e| e.to_string())?;
     note_self_write(&old);
     note_self_write(&target);
-    let h_old = history_dir(&root, &old);
-    if h_old.exists() {
-        let _ = fs::rename(&h_old, history_dir(&root, &target));
-    }
+    remap_history_dir(&root, &old, &target);
     Ok(PathChange {
         old_path: old.to_string_lossy().to_string(),
         new_path: target.to_string_lossy().to_string(),
@@ -677,8 +709,8 @@ fn delete_node(app: tauri::AppHandle, path: String) -> Result<(), String> {
     };
     if r.is_ok() {
         note_self_write(&p);
-        // 历史目录一并清理
-        let _ = fs::remove_dir_all(history_dir(&root, &p));
+        // 历史一并清理（含文件夹内所有子文档的快照）
+        remove_history_for(&root, &p);
     }
     r
 }

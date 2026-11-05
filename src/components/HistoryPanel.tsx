@@ -7,6 +7,7 @@ import {
 } from '../lib/desktop';
 import type { VersionInfo, DiffLine } from '../lib/desktop';
 import { useStore } from '../store/app';
+import { ConfirmDialog } from './ConfirmDialog';
 
 function fmtTime(ms: number): string {
   const d = new Date(ms);
@@ -27,6 +28,7 @@ export function HistoryPanel({ docId, onClose }: { docId: string; onClose: () =>
   const [fullText, setFullText] = useState<string | null>(null);
   const [showFull, setShowFull] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [confirmRestore, setConfirmRestore] = useState(false);
 
   useEffect(() => {
     void listVersions(docId)
@@ -68,7 +70,7 @@ export function HistoryPanel({ docId, onClose }: { docId: string; onClose: () =>
 
   async function doRestore() {
     if (!selected || busy) return;
-    if (!window.confirm(`恢复到「${fmtTime(selected.time_ms)}」的版本？当前内容会先自动存入历史，可再撤销。`)) return;
+    setConfirmRestore(false);
     setBusy(true);
     try {
       const content = await restoreVersion(docId, selected.seq);
@@ -124,7 +126,7 @@ export function HistoryPanel({ docId, onClose }: { docId: string; onClose: () =>
                     <button className="secondary" onClick={() => void loadFull()}>
                       查看全文
                     </button>
-                    <button className="primary" disabled={busy} onClick={() => void doRestore()}>
+                    <button className="primary" disabled={busy} onClick={() => setConfirmRestore(true)}>
                       {busy ? '恢复中…' : '恢复此版本'}
                     </button>
                   </div>
@@ -150,6 +152,15 @@ export function HistoryPanel({ docId, onClose }: { docId: string; onClose: () =>
               )}
             </div>
           </div>
+        )}
+        {confirmRestore && selected && (
+          <ConfirmDialog
+            message={`恢复到「${fmtTime(selected.time_ms)}」的版本？当前内容会先自动存入历史，可再撤销。`}
+            confirmText="恢复"
+            danger={false}
+            onConfirm={() => void doRestore()}
+            onCancel={() => setConfirmRestore(false)}
+          />
         )}
       </div>
     </div>
