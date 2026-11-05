@@ -109,7 +109,21 @@ export function EditorPane({
       markdown({ codeLanguages: languages }),
       livePreviewPlugin,
       EditorView.domEventHandlers({
-        // 粘贴截图 / 拖拽图片文件 → 压缩加密上传后插入
+        // 双击选中文本：选中点击位置所在的连续词语段（字母/数字/汉字，遇标点空白停止）
+        dblclick(event, view) {
+          const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
+          if (pos == null) return false;
+          const line = view.state.doc.lineAt(pos);
+          const isWordChar = (ch: string | undefined) => !!ch && /[\p{L}\p{N}_]/u.test(ch);
+          let from = pos;
+          let to = pos;
+          while (from > line.from && isWordChar(line.text[from - 1 - line.from])) from--;
+          while (to < line.to && isWordChar(line.text[to - line.from])) to++;
+          if (from >= to) return false;
+          view.dispatch({ selection: { anchor: from, head: to } });
+          return true; // 阻止默认双击，避免与隐藏语法标记的选择计算互相干扰
+        },
+        // 粘贴截图 / 拖拽图片文件 → 压缩后写入本地并插入
         paste(event, view) {
           const file = findImageFile(event.clipboardData);
           if (!file) return false;
