@@ -8,6 +8,10 @@ on:
 permissions:
   contents: write
 
+# 发版主题（随版本号一起更新，出现在 Release 标题里）
+env:
+  RELEASE_TOPIC: '首个公开版本'
+
 jobs:
   build-desktop:
     strategy:
@@ -50,7 +54,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: v__VERSION__
-          releaseName: '墨匣 __VERSION__'
+          releaseName: '墨匣 v__VERSION__ · ${{ env.RELEASE_TOPIC }}'
           releaseBody: |
             桌面客户端（macOS Apple Silicon / Intel，Windows x64）。
             未签名应用：macOS 安装后如提示「已损坏」，在终端执行 xattr -cr /Applications/inkvault.app 后再打开；Windows 如遇 SmartScreen，选「更多信息 → 仍要运行」。
