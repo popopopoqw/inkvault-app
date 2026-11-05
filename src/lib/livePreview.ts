@@ -2,6 +2,7 @@ import { syntaxTree } from '@codemirror/language';
 import { Range } from '@codemirror/state';
 import { Decoration, DecorationSet, EditorView, ViewPlugin, ViewUpdate, WidgetType } from '@codemirror/view';
 import { resolveAssetUrl } from './assets';
+import { renderMermaidToSvg } from './mermaid';
 
 /**
  * 所见即所得渲染：基于 markdown 语法树隐藏语法标记并应用渲染样式。
@@ -58,6 +59,36 @@ class ImageWidget extends WidgetType {
       })
       .catch(() => {
         wrap.textContent = `🖼 ${this.alt}（加载失败）`;
+      });
+    return wrap;
+  }
+  ignoreEvent() {
+    return false;
+  }
+}
+
+// 整块 mermaid 图表：光标不在块内时直接渲染成图
+class MermaidWidget extends WidgetType {
+  constructor(private code: string) {
+    super();
+  }
+  eq(other: MermaidWidget) {
+    return other.code === this.code;
+  }
+  get lineBreaks() {
+    return Math.max(4, this.code.split('\n').length);
+  }
+  toDOM() {
+    const wrap = document.createElement('div');
+    wrap.className = 'cm-mermaid';
+    wrap.textContent = '图表渲染中…';
+    void renderMermaidToSvg(this.code)
+      .then((svg) => {
+        wrap.innerHTML = svg;
+      })
+      .catch((e) => {
+        wrap.classList.add('mermaid-error');
+        wrap.textContent = `图表渲染失败：${(e as Error)?.message?.split('\n')[0] ?? '语法错误'}`;
       });
     return wrap;
   }
@@ -139,6 +170,28 @@ function buildDecorations(view: EditorView): DecorationSet {
           for (const child of node.node.getChildren('CodeMark')) marks.push({ from: child.from, to: child.to });
           const info = node.node.getChild('CodeInfo');
           for (const child of node.node.getChildren('CodeText')) codeText = { from: child.from, to: child.to };
+
+          // mermaid 块：光标不在块内时整块渲染成图
+          const lang = info && info.to > info.from ? state.sliceDoc(info.from, info.to).trim() : '';
+          if (lang === 'mermaid' && codeText) {
+            const firstLine = state.doc.lineAt(node.from).number;
+            const lastLine = state.doc.lineAt(node.to).number;
+            const cursorInside = state.selection.ranges.some((r) => {
+              const n = state.doc.lineAt(r.head).number;
+              return n >= firstLine && n <= lastLine;
+            });
+            if (!cursorInside) {
+              const from = state.doc.lineAt(node.from).from;
+              const to = state.doc.lineAt(node.to).to;
+              ranges.push(
+                Decoration.replace({ widget: new MermaidWidget(state.sliceDoc(codeText.from, codeText.to)), block: true }).range(from, to)
+              );
+              break;
+            }
+            // 光标在块内：全部显示源码，方便编辑
+            break;
+          }
+
           const nearAnyFence = marks.some((m) => cursorLines.has(state.doc.lineAt(m.from).number));
           if (marks.length >= 1 && !nearAnyFence) {
             const firstMark = marks[0];

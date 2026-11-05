@@ -1,6 +1,7 @@
 import { useDeferredValue, useEffect, useMemo } from 'react';
 import { renderMarkdown } from '../lib/markdown';
 import { resolveAssetUrl } from '../lib/assets';
+import { renderMermaidToSvg } from '../lib/mermaid';
 import type { HeadingInfo } from '../lib/markdown';
 
 export function Preview({
@@ -29,6 +30,18 @@ export function Preview({
         })
         .catch(() => {
           img.alt = `${img.alt || '图片'}（加载失败）`;
+        });
+    });
+    // 流程图：mermaid 块异步渲染成 SVG
+    el.querySelectorAll<HTMLElement>('.mermaid-block').forEach((block) => {
+      const code = block.textContent ?? '';
+      void renderMermaidToSvg(code)
+        .then((svg) => {
+          block.innerHTML = svg;
+        })
+        .catch((e) => {
+          block.classList.add('mermaid-error');
+          block.textContent = `图表渲染失败：${(e as Error)?.message?.split('\n')[0] ?? '语法错误'}`;
         });
     });
   }, [result.html, scrollRef]);

@@ -22,6 +22,16 @@ const md = new MarkdownIt({
 // 只放行安全协议 + 自定义附件协议 asset:<id>（密文图片），其余（javascript: 等）拒绝
 md.validateLink = (url: string) => /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(url) ? /^(https?:|mailto:|asset:)/.test(url) : true;
 
+// ```mermaid 代码块输出为占位容器（内容由 mermaid 异步渲染成 SVG），其余走默认代码高亮
+const defaultFence = md.renderer.rules.fence!;
+md.renderer.rules.fence = (tokens, idx, options, env, self) => {
+  const token = tokens[idx];
+  if (token.info.trim() === 'mermaid') {
+    return `<div class="mermaid-block">${md.utils.escapeHtml(token.content)}</div>`;
+  }
+  return defaultFence(tokens, idx, options, env, self);
+};
+
 export interface RenderResult {
   html: string;
   toc: TocEntry[];

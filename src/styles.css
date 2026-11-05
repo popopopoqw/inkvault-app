@@ -230,6 +230,34 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(79, 70, 22
 .editor-cm .cm-content input[type='checkbox'] { margin-right: 8px; pointer-events: none; accent-color: var(--accent); }
 .editor-cm .cm-md-image img { max-width: 100%; border-radius: var(--radius); display: block; margin: 4px 0; }
 
+/* mermaid 图表（编辑器内与预览共用视觉） */
+.cm-mermaid,
+.markdown-body .mermaid-block {
+  margin: 10px auto;
+  padding: 18px 16px;
+  background: #fbfbfe;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  text-align: center;
+  overflow-x: auto;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.cm-mermaid svg,
+.markdown-body .mermaid-block svg {
+  max-width: 100%;
+  height: auto;
+}
+.mermaid-error {
+  background: #fef2f2 !important;
+  border-color: #fecaca !important;
+  color: #b91c1c !important;
+  text-align: left;
+  white-space: pre-wrap;
+  font-family: var(--mono);
+  font-size: 12.5px;
+}
+
 .preview-scroll { flex: 1; overflow-y: auto; min-width: 0; }
 
 /* ---------- 大纲 ---------- */
