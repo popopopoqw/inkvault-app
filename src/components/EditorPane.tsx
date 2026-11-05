@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import CodeMirror, { EditorSelection, EditorView, Prec, keymap } from '@uiw/react-codemirror';
 import { markdown } from '@codemirror/lang-markdown';
 import { languages } from '@codemirror/language-data';
-import { livePreviewPlugin } from '../lib/livePreview';
+import { livePreviewPlugin, resolveVisiblePos } from '../lib/livePreview';
 import { findImageFile, insertImageFile } from '../lib/assets';
 import { useStore } from '../store/app';
 import { IconLink, IconQuote, IconList, IconTask, IconTable, IconCode, IconCodeInline, IconImage } from './Icons';
@@ -109,10 +109,20 @@ export function EditorPane({
       markdown({ codeLanguages: languages }),
       livePreviewPlugin,
       EditorView.domEventHandlers({
-        // 双击选中文本：选中点击位置所在的连续词语段（字母/数字/汉字，遇标点空白停止）
-        dblclick(event, view) {
+        // 点击落点：命中被隐藏的语法标记区域时，光标吸附到最近的可见位置
+        mousedown(event, view) {
           const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
           if (pos == null) return false;
+          const target = resolveVisiblePos(view, pos);
+          if (target === pos) return false; // 正常可见位置，交给 CodeMirror 默认处理（保留拖选）
+          view.dispatch({ selection: { anchor: target } });
+          return true;
+        },
+        // 双击选中文本：选中点击位置所在的连续词语段（字母/数字/汉字，遇标点空白停止）
+        dblclick(event, view) {
+          const clicked = view.posAtCoords({ x: event.clientX, y: event.clientY });
+          if (clicked == null) return false;
+          const pos = resolveVisiblePos(view, clicked);
           const line = view.state.doc.lineAt(pos);
           const isWordChar = (ch: string | undefined) => !!ch && /[\p{L}\p{N}_]/u.test(ch);
           let from = pos;

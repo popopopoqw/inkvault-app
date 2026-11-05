@@ -245,3 +245,21 @@ export const livePreviewPlugin = ViewPlugin.fromClass(
   },
   { decorations: (plugin) => plugin.decorations }
 );
+
+/**
+ * 点击定位：若位置落在被隐藏的语法标记（replace 装饰）内，
+ * 吸附到该隐藏区间的最近边界，保证"点哪儿光标就在哪儿"。
+ */
+export function resolveVisiblePos(view: EditorView, pos: number): number {
+  const plugin = view.plugin(livePreviewPlugin);
+  if (!plugin) return pos;
+  // RangeSet 迭代器停在第一个与 pos 相关的区间：要么覆盖 pos，要么在 pos 之后
+  const iter = plugin.decorations.iter(pos);
+  if (iter.value && iter.from <= pos && pos < iter.to) {
+    // 无 class 的是 replace（隐藏）装饰；mark/line 装饰都带 class
+    if (!iter.value.spec.class) {
+      return pos - iter.from <= iter.to - pos ? iter.from : iter.to;
+    }
+  }
+  return pos;
+}
