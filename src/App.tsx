@@ -182,11 +182,11 @@ function Workspace() {
           {activeDoc && !activeDoc.isFolder && (
             <button
               className="icon-toggle"
-              title="变更历史"
+              title="文档历史"
               onClick={() => setShowHistory(true)}
             >
               <IconHistory />
-              <span>历史</span>
+              <span>文档历史</span>
             </button>
           )}
           <button

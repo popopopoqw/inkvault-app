@@ -88,7 +88,7 @@ export function HistoryPanel({ docId, onClose }: { docId: string; onClose: () =>
     <div className="dialog-overlay" onClick={onClose}>
       <div className="history-panel" onClick={(e) => e.stopPropagation()}>
         <div className="history-head">
-          <h2>变更历史</h2>
+          <h2>文档历史</h2>
           <button className="secondary" onClick={onClose}>
             关闭
           </button>
