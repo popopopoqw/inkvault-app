@@ -5,7 +5,14 @@ use serde::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::RwLock;
 use tauri::Manager;
+
+#[derive(Serialize)]
+pub struct OpenResult {
+    pub root: String,
+    pub select_path: Option<String>,
+}
 
 /// 笔记库根目录：~/墨匣。文档就是磁盘上的 .md 文件，图片在 .assets/ 下。
 const VAULT_DIR: &str = "墨匣";
@@ -34,10 +41,30 @@ fn unique_id() -> String {
     format!("{:x}{:04x}", nanos, n & 0xffff)
 }
 
-fn vault_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+static ROOT: RwLock<Option<PathBuf>> = RwLock::new(None);
+
+fn config_file(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let home = app.path().home_dir().map_err(|e| e.to_string())?;
-    let root = home.join(VAULT_DIR);
+    Ok(home.join(".inkvault-root"))
+}
+
+/// 笔记库根目录：优先用「打开」过的目录（记录在 ~/.inkvault-root），默认 ~/墨匣
+fn vault_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    if let Some(r) = ROOT.read().ok().and_then(|g| g.clone()) {
+        return Ok(r);
+    }
+    let home = app.path().home_dir().map_err(|e| e.to_string())?;
+    let saved = fs::read_to_string(config_file(app)?)
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .map(PathBuf::from)
+        .filter(|p| p.is_dir());
+    let root = saved.unwrap_or_else(|| home.join(VAULT_DIR));
     fs::create_dir_all(&root).map_err(|e| e.to_string())?;
+    if let Ok(mut g) = ROOT.write() {
+        *g = Some(root.clone());
+    }
     Ok(root)
 }
 
@@ -119,6 +146,35 @@ fn walk(dir: &Path, out: &mut Vec<Node>) {
 #[tauri::command]
 fn vault_root_path(app: tauri::AppHandle) -> Result<String, String> {
     Ok(vault_root(&app)?.to_string_lossy().to_string())
+}
+
+/// 打开本地文件夹（作为笔记库根）或单个 Markdown 文件（以其所在文件夹为根并选中它）
+#[tauri::command]
+fn open_path(app: tauri::AppHandle, path: String) -> Result<OpenResult, String> {
+    let p = PathBuf::from(&path);
+    let (root, select) = if p.is_dir() {
+        (p, None)
+    } else if p.is_file() {
+        let parent = p.parent().ok_or("no parent")?.to_path_buf();
+        (parent, Some(p))
+    } else {
+        return Err("路径不存在".into());
+    };
+    fs::create_dir_all(&root).map_err(|e| e.to_string())?;
+    let _ = fs::create_dir_all(root.join(ASSETS_DIR));
+    fs::write(config_file(&app)?, root.to_string_lossy().as_bytes()).map_err(|e| e.to_string())?;
+    if let Ok(mut g) = ROOT.write() {
+        *g = Some(root.clone());
+    }
+    // 动态放行新根目录的图片协议访问
+    #[cfg(feature = "protocol-asset")]
+    {
+        let _ = &app;
+    }
+    Ok(OpenResult {
+        root: root.to_string_lossy().to_string(),
+        select_path: select.map(|p| p.to_string_lossy().to_string()),
+    })
 }
 
 #[tauri::command]
@@ -253,8 +309,10 @@ fn save_asset(app: tauri::AppHandle, ext: String, data: Vec<u8>) -> Result<Strin
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             vault_root_path,
+            open_path,
             list_tree,
             read_doc,
             write_doc,

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { childrenOf, isDescendant, useStore } from '../store/app';
+import { pickAndOpenFile, pickAndOpenFolder } from '../lib/desktop';
 import type { DecryptedDoc } from '../lib/types';
 import { NewNodeDialog } from './NewNodeDialog';
 import { IconDoc, IconFolder, IconFolderOpen, IconFolderPlus, IconPlus, IconPencil, IconTrash, IconChevronDown, IconChevronRight } from './Icons';
@@ -13,7 +14,17 @@ export function FileTree() {
   const [rootDragOver, setRootDragOver] = useState(false);
   // 新建对话框：null 关闭；打开时预选目录（默认当前文档所在目录）
   const [creating, setCreating] = useState<{ isFolder: boolean; parent: string | null } | null>(null);
+  const [openMenu, setOpenMenu] = useState(false);
   const roots = childrenOf(docs, null);
+
+  const openFolder = async () => {
+    const result = await pickAndOpenFolder();
+    if (result) await useStore.getState().openPath(result);
+  };
+  const openFile = async () => {
+    const result = await pickAndOpenFile();
+    if (result) await useStore.getState().openPath(result);
+  };
 
   const openCreate = (isFolder: boolean, parent?: string | null) => {
     const fallback = activeId ? (docs[activeId]?.parentId ?? null) : null;
@@ -25,6 +36,24 @@ export function FileTree() {
       <div className="filetree-header">
         <span className="filetree-title">文档库</span>
         <span className="filetree-actions">
+          <div className="open-wrap">
+            <button title="打开本地文件夹或文件" onClick={() => setOpenMenu((v) => !v)}>
+              <IconFolderOpen />
+            </button>
+            {openMenu && (
+              <>
+                <div className="menu-mask" onClick={() => setOpenMenu(false)} />
+                <div className="open-menu">
+                  <button onClick={() => { setOpenMenu(false); void openFolder(); }}>
+                    <IconFolder /> 打开文件夹…
+                  </button>
+                  <button onClick={() => { setOpenMenu(false); void openFile(); }}>
+                    <IconDoc /> 打开文件…
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
           <button title="新建文档（可选目录）" onClick={() => openCreate(false)}>
             <IconPlus />
           </button>

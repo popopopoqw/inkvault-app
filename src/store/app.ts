@@ -6,6 +6,7 @@ import {
   desktopMove,
   desktopRename,
   desktopWriteDoc,
+  invalidateRootCache,
   isMdTitle,
 } from '../lib/desktop';
 import type { DecryptedDoc } from '../lib/types';
@@ -32,6 +33,7 @@ interface AppState {
   renameNode: (id: string, title: string) => Promise<void>;
   moveNode: (id: string, parentId: string | null) => Promise<void>;
   deleteNode: (id: string) => Promise<void>;
+  openPath: (result: { root: string; select_path: string | null }) => Promise<void>;
   updateContent: (id: string, content: string) => void;
   flush: () => Promise<void>;
   showToast: (msg: string) => void;
@@ -238,6 +240,23 @@ export const useStore = create<AppState>()((set, get) => ({
       nextActive = childrenOf(remaining, docs[id]?.parentId ?? null).find((d) => !d.isFolder)?.id ?? null;
     }
     set({ docs: remaining, activeId: nextActive });
+  },
+
+  // 打开本地文件夹/文件后：重载整棵树并定位到目标文件
+  openPath: async (result) => {
+    await get().flush();
+    invalidateRootCache();
+    try {
+      const docs = await desktopListDocs();
+      const select =
+        (result.select_path && docs[result.select_path] ? result.select_path : null) ??
+        childrenOf(docs, null).find((d) => !d.isFolder)?.id ??
+        null;
+      set({ docs, activeId: select, expanded: {}, saveState: 'idle' });
+      get().showToast(`已打开 ${result.root}`);
+    } catch {
+      get().showToast('读取目录失败');
+    }
   },
 
   updateContent: (id, content) => {

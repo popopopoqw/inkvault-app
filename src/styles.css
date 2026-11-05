@@ -129,6 +129,20 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(79, 70, 22
   letter-spacing: 0.05em;
 }
 .filetree-actions { display: flex; gap: 2px; }
+.open-wrap { position: relative; display: inline-flex; }
+.menu-mask { position: fixed; inset: 0; z-index: 40; }
+.open-menu {
+  position: absolute; top: calc(100% + 4px); left: 0; z-index: 41;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(35, 30, 80, 0.16);
+  padding: 4px; min-width: 150px; display: flex; flex-direction: column;
+}
+.open-menu button {
+  justify-content: flex-start; gap: 8px; border: none; background: transparent;
+  padding: 8px 10px; font-size: 13px; color: var(--text); border-radius: 7px;
+}
+.open-menu button:hover { background: var(--accent-soft); color: var(--accent); }
+.open-menu svg { font-size: 15px; }
 .filetree-actions button { padding: 4px; color: var(--text-dim); font-size: 15px; }
 .filetree-actions button:hover { color: var(--accent); background: var(--accent-soft); }
 .filetree-body { flex: 1; overflow-y: auto; padding: 0 6px 12px; position: relative; }
