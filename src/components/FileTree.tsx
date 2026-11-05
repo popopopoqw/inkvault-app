@@ -18,12 +18,20 @@ export function FileTree() {
   const roots = childrenOf(docs, null);
 
   const openFolder = async () => {
-    const result = await pickAndOpenFolder();
-    if (result) await useStore.getState().openPath(result);
+    try {
+      const result = await pickAndOpenFolder();
+      if (result) await useStore.getState().openPath(result);
+    } catch (e) {
+      useStore.getState().showToast((e as Error)?.message ?? '打开失败');
+    }
   };
   const openFile = async () => {
-    const result = await pickAndOpenFile();
-    if (result) await useStore.getState().openPath(result);
+    try {
+      const result = await pickAndOpenFile();
+      if (result) await useStore.getState().openPath(result);
+    } catch (e) {
+      useStore.getState().showToast((e as Error)?.message ?? '打开失败');
+    }
   };
 
   const openCreate = (isFolder: boolean, parent?: string | null) => {
