@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { EditorView } from '@uiw/react-codemirror';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useStore } from './store/app';
 import { FileTree } from './components/FileTree';
 import { EditorPane } from './components/EditorPane';
@@ -110,6 +111,27 @@ function Workspace() {
     const flush = () => void useStore.getState().flush();
     window.addEventListener('beforeunload', flush);
     return () => window.removeEventListener('beforeunload', flush);
+  }, []);
+
+  // Tauri 关窗钩子：beforeunload 的异步写盘来不及完成，必须拦截关闭、写完再关
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let disposed = false;
+    const win = getCurrentWindow();
+    void win
+      .onCloseRequested(async (event) => {
+        event.preventDefault();
+        await useStore.getState().flush();
+        await win.destroy();
+      })
+      .then((fn) => {
+        if (disposed) fn();
+        else unlisten = fn;
+      });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
   }, []);
 
   return (

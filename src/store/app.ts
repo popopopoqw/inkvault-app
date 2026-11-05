@@ -142,11 +142,16 @@ export const useStore = create<AppState>()((set, get) => ({
     }
   },
 
-  selectDoc: (id) => set({ activeId: id }),
+  selectDoc: (id) => {
+    // 切换文档前把未落盘的内容先写出去，防止防抖窗口内切换导致丢失
+    void get().flush();
+    set({ activeId: id });
+  },
 
   toggleFolder: (id) => set((s) => ({ expanded: { ...s.expanded, [id]: !s.expanded[id] } })),
 
   createNode: async (parentId, isFolder, initialContent) => {
+    await get().flush(); // 先落盘当前文档，防抖窗口内新建会丢内容
     try {
       const node = await desktopCreateNode(parentId, isFolder);
       if (initialContent && !isFolder) {
@@ -164,6 +169,7 @@ export const useStore = create<AppState>()((set, get) => ({
   },
 
   createNodeNamed: async (parentId, isFolder, name) => {
+    await get().flush();
     try {
       const node = await desktopCreateNode(parentId, isFolder, name);
       set((s) => ({
@@ -177,6 +183,7 @@ export const useStore = create<AppState>()((set, get) => ({
   },
 
   renameNode: async (id, title) => {
+    await get().flush(); // 先按旧路径写盘，防抖队列里的路径才不会因改名失效
     const doc = get().docs[id];
     if (!doc || doc.title === title) return;
     try {
@@ -188,6 +195,7 @@ export const useStore = create<AppState>()((set, get) => ({
   },
 
   moveNode: async (id, parentId) => {
+    await get().flush(); // 同 rename：先按旧路径落盘
     const { docs } = get();
     const doc = docs[id];
     if (!doc) return;
@@ -211,6 +219,7 @@ export const useStore = create<AppState>()((set, get) => ({
   },
 
   deleteNode: async (id) => {
+    await get().flush();
     const { docs, activeId } = get();
     const ids = collectSubtree(docs, id);
     try {
