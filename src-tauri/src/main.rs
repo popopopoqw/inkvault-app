@@ -155,6 +155,11 @@ fn open_path(app: tauri::AppHandle, path: String) -> Result<OpenResult, String> 
     let (root, select) = if p.is_dir() {
         (p, None)
     } else if p.is_file() {
+        // 只接受 Markdown 文件（.md / .markdown）
+        let ext = p.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase());
+        if !matches!(ext.as_deref(), Some("md") | Some("markdown")) {
+            return Err("只支持打开 Markdown（.md）文件".into());
+        }
         let parent = p.parent().ok_or("no parent")?.to_path_buf();
         (parent, Some(p))
     } else {

@@ -129,7 +129,7 @@ export async function pickAndOpenFile(): Promise<OpenResult | null> {
     directory: false,
     multiple: false,
     title: '打开 Markdown 文件',
-    filters: [{ name: 'Markdown', extensions: ['md', 'markdown', 'txt'] }],
+    filters: [{ name: 'Markdown', extensions: ['md', 'markdown'] }],
   });
   if (typeof picked !== 'string' || !picked) return null;
   return invoke<OpenResult>('open_path', { path: picked });
