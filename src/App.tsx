@@ -43,6 +43,8 @@ function Workspace() {
 
   const activeDoc = activeId ? docs[activeId] : undefined;
   const [viewMode, setViewMode] = useState<ViewMode>('edit');
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState('');
   const headings = useMemo(() => (activeDoc && !activeDoc.isFolder ? extractHeadings(activeDoc.content) : []), [activeDoc]);
   const [activeHeading, setActiveHeading] = useState(0);
   const [editorScrollEl, setEditorScrollEl] = useState<HTMLElement | null>(null);
@@ -118,9 +120,38 @@ function Workspace() {
           <span className="app-name">墨匣</span>
         </span>
         {activeDoc && !activeDoc.isFolder && (
-          <span className="doc-title" title={activeDoc.title}>
-            {activeDoc.title || '无标题'}
-          </span>
+          editingTitle ? (
+            <input
+              className="doc-title-input"
+              value={titleDraft}
+              autoFocus
+              onChange={(e) => setTitleDraft(e.target.value)}
+              onFocus={(e) => e.target.select()}
+              onBlur={() => {
+                setEditingTitle(false);
+                const name = titleDraft.trim();
+                if (name && name !== activeDoc.title) void useStore.getState().renameNode(activeDoc.id, name);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') e.currentTarget.blur();
+                if (e.key === 'Escape') {
+                  setTitleDraft(activeDoc.title);
+                  setEditingTitle(false);
+                }
+              }}
+            />
+          ) : (
+            <span
+              className="doc-title editable"
+              title="点击重命名"
+              onClick={() => {
+                setTitleDraft(activeDoc.title);
+                setEditingTitle(true);
+              }}
+            >
+              {activeDoc.title || '无标题'}
+            </span>
+          )
         )}
         <span className={`save-state ${saveState}`}>{SAVE_LABEL[saveState] ?? ''}</span>
         <div className="topbar-right">
