@@ -3,6 +3,7 @@ import { childrenOf, isDescendant, useStore } from '../store/app';
 import { pickAndOpenFile, pickAndOpenFolder } from '../lib/desktop';
 import type { DecryptedDoc } from '../lib/types';
 import { NewNodeDialog } from './NewNodeDialog';
+import { ConfirmDialog } from './ConfirmDialog';
 import { IconDoc, IconFolder, IconFolderOpen, IconFolderPlus, IconPlus, IconPencil, IconTrash, IconChevronDown, IconChevronRight } from './Icons';
 
 type DropPos = 'into';
@@ -15,6 +16,8 @@ export function FileTree() {
   // 新建对话框：null 关闭；打开时预选目录（默认当前文档所在目录）
   const [creating, setCreating] = useState<{ isFolder: boolean; parent: string | null } | null>(null);
   const [openMenu, setOpenMenu] = useState(false);
+  // 待确认删除：Tauri WebView 的 window.confirm 不弹窗，必须自绘
+  const [pendingDelete, setPendingDelete] = useState<{ id: string; label: string; hasChildren: boolean } | null>(null);
   const roots = childrenOf(docs, null);
 
   const openFolder = async () => {
@@ -95,6 +98,9 @@ export function FileTree() {
             draggingId={draggingId}
             setDraggingId={setDraggingId}
             onCreateIn={openCreate}
+            onRequestDelete={(d) =>
+              setPendingDelete({ id: d.id, label: d.title || (d.isFolder ? '文件夹' : '文档'), hasChildren: d.isFolder && childrenOf(docs, d.id).length > 0 })
+            }
           />
         ))}
         {roots.length === 0 && (
@@ -105,6 +111,20 @@ export function FileTree() {
           </p>
         )}
       </div>
+      {pendingDelete && (
+        <ConfirmDialog
+          message={
+            pendingDelete.hasChildren
+              ? `删除文件夹「${pendingDelete.label}」及其全部内容？此操作不可恢复。`
+              : `删除「${pendingDelete.label}」？`
+          }
+          onConfirm={() => {
+            void useStore.getState().deleteNode(pendingDelete.id);
+            setPendingDelete(null);
+          }}
+          onCancel={() => setPendingDelete(null)}
+        />
+      )}
       {creating && (
         <NewNodeDialog
           docs={docs}
@@ -124,12 +144,14 @@ function TreeNode({
   draggingId,
   setDraggingId,
   onCreateIn,
+  onRequestDelete,
 }: {
   doc: DecryptedDoc;
   depth: number;
   draggingId: string | null;
   setDraggingId: (id: string | null) => void;
   onCreateIn: (isFolder: boolean, parent?: string | null) => void;
+  onRequestDelete: (doc: DecryptedDoc) => void;
 }) {
   const docs = useStore((s) => s.docs);
   const activeId = useStore((s) => s.activeId);
@@ -138,7 +160,7 @@ function TreeNode({
   const [title, setTitle] = useState(doc.title);
   const [dropPos, setDropPos] = useState<DropPos | null>(null);
 
-  const { selectDoc, toggleFolder, renameNode, deleteNode, moveNode } = useStore.getState();
+  const { selectDoc, toggleFolder, renameNode, moveNode } = useStore.getState();
   const isFolder = doc.isFolder;
   const isOpen = isFolder && isExpanded;
   const children = isFolder ? childrenOf(docs, doc.id) : [];
@@ -151,10 +173,7 @@ function TreeNode({
   }
 
   function confirmDelete() {
-    const label = doc.title || (isFolder ? '文件夹' : '文档');
-    const hasChildren = isFolder && childrenOf(docs, doc.id).length > 0;
-    const msg = hasChildren ? `删除文件夹「${label}」及其全部内容？此操作不可恢复。` : `删除「${label}」？`;
-    if (window.confirm(msg)) void deleteNode(doc.id);
+    onRequestDelete(doc);
   }
 
   function handleDragOver(e: React.DragEvent) {
@@ -245,6 +264,7 @@ function TreeNode({
           draggingId={draggingId}
           setDraggingId={setDraggingId}
           onCreateIn={onCreateIn}
+          onRequestDelete={onRequestDelete}
         />
       ))}
     </>

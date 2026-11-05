@@ -365,6 +365,13 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(79, 70, 22
   background: linear-gradient(135deg, #6d6af7, var(--accent)); color: #fff; font-weight: 600;
 }
 .dialog-actions .primary:disabled { opacity: 0.45; cursor: not-allowed; }
+.confirm-card { width: 340px; }
+.confirm-message { margin: 4px 0 2px; line-height: 1.7; color: var(--text); }
+.dialog-actions .danger-btn {
+  min-width: 72px; padding: 8px 18px; border: none; border-radius: 8px;
+  background: linear-gradient(135deg, #ef4444, #dc2626); color: #fff; font-weight: 600;
+}
+.dialog-actions .danger-btn:hover { background: #dc2626; }
 
 /* ---------- 历史面板 ---------- */
 .history-panel {
