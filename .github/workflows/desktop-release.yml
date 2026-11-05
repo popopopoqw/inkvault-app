@@ -70,7 +70,7 @@ jobs:
             桌面客户端（macOS Apple Silicon / Intel，Windows x64）。
             未签名应用：macOS 安装后如提示「已损坏」，在终端执行 xattr -cr /Applications/inkvault.app 后再打开；Windows 如遇 SmartScreen，选「更多信息 → 仍要运行」。
             下载后可用 SHA256SUMS 校验文件完整性：`shasum -a 256 -c SHA256SUMS`（Windows: `certutil -hashfile 文件名 SHA256`）。
-          releaseDraft: true
+          releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
 
