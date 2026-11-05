@@ -37,6 +37,11 @@ export interface RenderResult {
   toc: TocEntry[];
 }
 
+/** 直接把 markdown 源码渲染成 HTML 片段（块级 widget 复用） */
+export function renderHtml(src: string): string {
+  return md.render(src);
+}
+
 // 从 markdown 源码提取标题（含行号），供所见即所得模式的大纲定位使用
 export interface HeadingInfo {
   level: number;
@@ -88,7 +93,7 @@ export function renderMarkdown(source: string): RenderResult {
     const walker = document.createTreeWalker(li, NodeFilter.SHOW_TEXT);
     let node: Node | null;
     while ((node = walker.nextNode())) {
-      const m = /^ *\[( |x|X)\] +/.exec(node.nodeValue ?? '');
+      const m = /^ *\[( |x|X)\][ \u3000]*/.exec(node.nodeValue ?? '');
       if (!m) continue;
       const checkbox = document.createElement('input');
       checkbox.type = 'checkbox';

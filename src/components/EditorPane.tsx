@@ -2,11 +2,12 @@ import { useEffect, useMemo, useRef } from 'react';
 import type { ReactNode } from 'react';
 import CodeMirror, { EditorSelection, EditorView, Prec, keymap } from '@uiw/react-codemirror';
 import { markdown } from '@codemirror/lang-markdown';
+import { Table } from '@lezer/markdown';
 import { languages } from '@codemirror/language-data';
 import { livePreview, resolveVisiblePos } from '../lib/livePreview';
 import { findImageFile, insertImageFile } from '../lib/assets';
 import { useStore } from '../store/app';
-import { IconLink, IconQuote, IconList, IconTask, IconTable, IconCode, IconCodeInline, IconImage } from './Icons';
+import { IconLink, IconQuote, IconList, IconTask, IconTable, IconCode, IconCodeInline, IconImage, IconClock } from './Icons';
 
 function wrapSelection(view: EditorView, before: string, after: string) {
   const { state } = view;
@@ -67,6 +68,16 @@ function insertBlock(view: EditorView, text: string) {
 }
 
 const TABLE_SNIPPET = '| 列1 | 列2 | 列3 |\n| --- | --- | --- |\n|  |  |  |\n|  |  |  |';
+
+// 在光标处插入当前日期时间（YYYY-MM-DD HH:mm）
+function insertTimestamp(view: EditorView) {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const text = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const pos = view.state.selection.main.head;
+  view.dispatch({ changes: { from: pos, insert: text }, selection: { anchor: pos + text.length } });
+  view.focus();
+}
 const CODE_SNIPPET = '```ts\n\n```';
 
 interface Tool {
@@ -90,6 +101,7 @@ const TOOLS: Tool[] = [
   { label: '', title: '任务列表', icon: <IconTask />, run: (v) => toggleLinePrefix(v, '- [ ] ') },
   { label: '', title: '表格', icon: <IconTable />, run: (v) => insertBlock(v, TABLE_SNIPPET) },
   { label: '', title: '代码块', icon: <IconCode />, run: (v) => insertBlock(v, CODE_SNIPPET) },
+  { label: '', title: '插入当前日期时间 (Cmd/Ctrl+;)', icon: <IconClock />, run: insertTimestamp },
 ];
 
 export function EditorPane({
@@ -117,7 +129,7 @@ export function EditorPane({
 
   const extensions = useMemo(
     () => [
-      markdown({ codeLanguages: languages }),
+      markdown({ codeLanguages: languages, extensions: [Table] }),
       livePreview,
       EditorView.domEventHandlers({
         // 点击落点：命中被隐藏的语法标记区域时，光标吸附到最近的可见位置
@@ -165,6 +177,7 @@ export function EditorPane({
           { key: 'Mod-b', run: (v) => (wrapSelection(v, '**', '**'), true) },
           { key: 'Mod-i', run: (v) => (wrapSelection(v, '*', '*'), true) },
           { key: 'Mod-k', run: (v) => (wrapSelection(v, '[', '](https://)'), true) },
+          { key: 'Mod-;', run: (v) => (insertTimestamp(v), true) },
         ])
       ),
     ],

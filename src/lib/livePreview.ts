@@ -3,6 +3,7 @@ import { EditorState, Range, StateField } from '@codemirror/state';
 import { Decoration, DecorationSet, EditorView, ViewPlugin, ViewUpdate, WidgetType } from '@codemirror/view';
 import { resolveAssetUrl } from './assets';
 import { renderMermaidToSvg } from './mermaid';
+import { renderHtml } from './markdown';
 
 /**
  * 所见即所得渲染：基于 markdown 语法树隐藏语法标记并应用渲染样式。
@@ -60,6 +61,28 @@ class ImageWidget extends WidgetType {
       .catch(() => {
         wrap.textContent = `🖼 ${this.alt}（加载失败）`;
       });
+    return wrap;
+  }
+  ignoreEvent() {
+    return false;
+  }
+}
+
+// 表格：整块渲染成 HTML 表格（光标进入显示源码）
+class TableWidget extends WidgetType {
+  constructor(private src: string) {
+    super();
+  }
+  eq(other: TableWidget) {
+    return other.src === this.src;
+  }
+  get lineBreaks() {
+    return Math.max(3, this.src.split('\n').length);
+  }
+  toDOM() {
+    const wrap = document.createElement('div');
+    wrap.className = 'cm-md-table';
+    wrap.innerHTML = renderHtml(this.src);
     return wrap;
   }
   ignoreEvent() {
@@ -244,17 +267,19 @@ function buildInlineDecorations(view: EditorView): DecorationSet {
           break;
         }
         case 'ListItem': {
-          // 任务列表：把 [x]/[ ] 渲染为 checkbox（ListMark 可能不含尾随空格，正则做兼容）
+          // 任务列表：把 [x]/[ ] 渲染为 checkbox；
+          // [x] 后的空格可为半角/全角/无空格（含行尾空任务），replace 连空格一并替换
           const mark = node.node.getChild('ListMark');
           if (!mark) break;
-          const after = state.sliceDoc(mark.to, mark.to + 8);
-          const m = /^( *)\[([ xX])\] /.exec(after);
+          const after = state.sliceDoc(mark.to, mark.to + 12);
+          const m = /^( *)\[([ xX])\][ \u3000]*/.exec(after);
           if (!m) break;
           const boxFrom = mark.to + m[1].length;
+          const boxLen = m[0].length - m[1].length;
           const line = state.doc.lineAt(boxFrom);
           if (cursorLines.has(line.number)) break;
           ranges.push(
-            Decoration.replace({ widget: new CheckboxWidget(m[2] !== ' ') }).range(boxFrom, boxFrom + 3)
+            Decoration.replace({ widget: new CheckboxWidget(m[2] !== ' ') }).range(boxFrom, boxFrom + boxLen)
           );
           break;
         }
@@ -288,6 +313,23 @@ function buildBlockDecorations(state: EditorState): DecorationSet {
   const ranges: Range<Decoration>[] = [];
   syntaxTree(state).iterate({
     enter(node) {
+      // 表格：光标不在块内时整块渲染成 HTML 表格
+      if (node.name === 'Table') {
+        const firstLine = state.doc.lineAt(node.from).number;
+        const lastLine = state.doc.lineAt(node.to).number;
+        const cursorInside = state.selection.ranges.some((r) => {
+          const n = state.doc.lineAt(r.head).number;
+          return n >= firstLine && n <= lastLine;
+        });
+        if (!cursorInside) {
+          const from = state.doc.lineAt(node.from).from;
+          const to = state.doc.lineAt(node.to).to;
+          ranges.push(
+            Decoration.replace({ widget: new TableWidget(state.sliceDoc(from, to)), block: true }).range(from, to)
+          );
+        }
+        return false;
+      }
       if (node.name !== 'FencedCode') return;
       const info = node.node.getChild('CodeInfo');
       const codeText = node.node.getChildren('CodeText')[0];

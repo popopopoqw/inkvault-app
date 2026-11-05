@@ -197,6 +197,11 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(79, 70, 22
 .editor-toolbar button:hover { background: #e9e9f4; color: var(--accent); }
 .editor-cm { flex: 1; min-height: 0; overflow: hidden; }
 .editor-cm .cm-editor { height: 100%; }
+/* 关键：编辑器的高度链必须逐层约束，任何一层缺约束都会被内容撑开（滚轮无效）。
+   @uiw 的主题包装层（.cm-theme-*）默认无高度，必须显式传递 */
+.editor-cm > div { height: 100%; min-height: 0; }
+.editor-cm .cm-editor { height: 100%; }
+.editor-cm .cm-scroller { height: 100%; overflow: auto; }
 .editor-cm .cm-editor.cm-focused { outline: none; }
 /* 所见即所得：正文比例字体、内容居中 */
 .editor-cm .cm-scroller { font-family: var(--sans); font-size: 15px; line-height: 1.8; }
@@ -229,6 +234,13 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(79, 70, 22
 .editor-cm .cm-line.cm-md-fence { line-height: 8px; min-height: 8px; }
 .editor-cm .cm-content input[type='checkbox'] { margin-right: 8px; pointer-events: none; accent-color: var(--accent); }
 .editor-cm .cm-md-image img { max-width: 100%; border-radius: var(--radius); display: block; margin: 4px 0; }
+
+/* 编辑器内渲染的表格 */
+.cm-md-table { margin: 6px 0; overflow-x: auto; }
+.cm-md-table table { border-collapse: collapse; margin: 0; font-size: 13.5px; }
+.cm-md-table th, .cm-md-table td { border: 1px solid var(--border); padding: 5px 12px; }
+.cm-md-table th { background: #f6f6fa; font-weight: 600; }
+.cm-md-table tr:nth-child(2n) td { background: #fafafc; }
 
 /* mermaid 图表（编辑器内与预览共用视觉） */
 .cm-mermaid,
