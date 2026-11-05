@@ -86,6 +86,17 @@ function applyColor(view: EditorView, kind: 'color' | 'background-color', hex: s
   view.focus();
 }
 
+// Cmd/Ctrl+Shift+H：切换背景高亮（默认黄；已高亮则清除）
+function toggleHighlight(view: EditorView) {
+  const sel = view.state.selection.main;
+  const text = view.state.sliceDoc(sel.from, sel.to);
+  if (/<span style="background-color:[^>]*>/i.test(text)) {
+    applyColor(view, 'background-color', null);
+  } else {
+    applyColor(view, 'background-color', '#fef08a');
+  }
+}
+
 // 在光标处插入当前日期时间（YYYY-MM-DD HH:mm）
 function insertTimestamp(view: EditorView) {
   const d = new Date();
@@ -105,17 +116,17 @@ interface Tool {
 }
 
 const TOOLS: Tool[] = [
-  { label: 'H1', title: '一级标题', run: (v) => toggleLinePrefix(v, '# ') },
-  { label: 'H2', title: '二级标题', run: (v) => toggleLinePrefix(v, '## ') },
-  { label: 'H3', title: '三级标题', run: (v) => toggleLinePrefix(v, '### ') },
+  { label: 'H1', title: '一级标题 (Cmd/Ctrl+Shift+1)', run: (v) => toggleLinePrefix(v, '# ') },
+  { label: 'H2', title: '二级标题 (Cmd/Ctrl+Shift+2)', run: (v) => toggleLinePrefix(v, '## ') },
+  { label: 'H3', title: '三级标题 (Cmd/Ctrl+Shift+3)', run: (v) => toggleLinePrefix(v, '### ') },
   { label: 'B', title: '粗体 (Cmd/Ctrl+B)', run: (v) => wrapSelection(v, '**', '**') },
   { label: 'I', title: '斜体 (Cmd/Ctrl+I)', run: (v) => wrapSelection(v, '*', '*') },
-  { label: '', title: '行内代码', icon: <IconCodeInline />, run: (v) => wrapSelection(v, '`', '`') },
+  { label: '', title: '行内代码 (Cmd/Ctrl+E)', icon: <IconCodeInline />, run: (v) => wrapSelection(v, '`', '`') },
   { label: '', title: '链接 (Cmd/Ctrl+K)', icon: <IconLink />, run: (v) => wrapSelection(v, '[', '](https://)') },
   { label: '', title: '引用', icon: <IconQuote />, run: (v) => toggleLinePrefix(v, '> ') },
-  { label: '', title: '无序列表', icon: <IconList />, run: (v) => toggleLinePrefix(v, '- ') },
-  { label: '1.', title: '有序列表', run: (v) => toggleLinePrefix(v, '1. ') },
-  { label: '', title: '任务列表', icon: <IconTask />, run: (v) => toggleLinePrefix(v, '- [ ] ') },
+  { label: '', title: '无序列表 (Cmd/Ctrl+Shift+8)', icon: <IconList />, run: (v) => toggleLinePrefix(v, '- ') },
+  { label: '1.', title: '有序列表 (Cmd/Ctrl+Shift+7)', run: (v) => toggleLinePrefix(v, '1. ') },
+  { label: '', title: '任务列表 (Cmd/Ctrl+Shift+9)', icon: <IconTask />, run: (v) => toggleLinePrefix(v, '- [ ] ') },
   { label: '', title: '表格', icon: <IconTable />, run: (v) => insertBlock(v, TABLE_SNIPPET) },
   { label: '', title: '代码块', icon: <IconCode />, run: (v) => insertBlock(v, CODE_SNIPPET) },
   { label: '', title: '插入当前日期时间 (Cmd/Ctrl+;)', icon: <IconClock />, run: insertTimestamp },
@@ -219,6 +230,14 @@ export function EditorPane({
           { key: 'Mod-i', run: (v) => (wrapSelection(v, '*', '*'), true) },
           { key: 'Mod-k', run: (v) => (wrapSelection(v, '[', '](https://)'), true) },
           { key: 'Mod-;', run: (v) => (insertTimestamp(v), true) },
+          { key: 'Mod-Shift-1', run: (v) => (toggleLinePrefix(v, '# '), true) },
+          { key: 'Mod-Shift-2', run: (v) => (toggleLinePrefix(v, '## '), true) },
+          { key: 'Mod-Shift-3', run: (v) => (toggleLinePrefix(v, '### '), true) },
+          { key: 'Mod-Shift-7', run: (v) => (toggleLinePrefix(v, '1. '), true) },
+          { key: 'Mod-Shift-8', run: (v) => (toggleLinePrefix(v, '- '), true) },
+          { key: 'Mod-Shift-9', run: (v) => (toggleLinePrefix(v, '- [ ] '), true) },
+          { key: 'Mod-e', run: (v) => (wrapSelection(v, '`', '`'), true) },
+          { key: 'Mod-Shift-h', run: (v) => (toggleHighlight(v), true) },
         ])
       ),
     ],
@@ -250,7 +269,7 @@ export function EditorPane({
             A
           </button>
           <button
-            title="背景颜色（先选中文字）"
+            title="背景颜色（先选中文字，Cmd/Ctrl+Shift+H 快速高亮）"
             style={{ background: 'linear-gradient(180deg, transparent 55%, #fef08a 55%)' }}
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => setColorMenu(colorMenu === 'background-color' ? null : 'background-color')}
