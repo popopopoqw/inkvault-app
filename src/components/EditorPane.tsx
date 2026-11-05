@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import CodeMirror, { EditorSelection, EditorView, Prec, keymap } from '@uiw/react-codemirror';
 import { markdown } from '@codemirror/lang-markdown';
@@ -8,6 +8,7 @@ import { livePreview, lineHasDecoration, posFromClick, resolveVisiblePos } from 
 import { findImageFile, insertImageFile } from '../lib/assets';
 import { useStore } from '../store/app';
 import { IconLink, IconQuote, IconList, IconTask, IconTable, IconCode, IconCodeInline, IconImage, IconClock } from './Icons';
+import { ColorPicker } from './ColorPicker';
 
 function wrapSelection(view: EditorView, before: string, after: string) {
   const { state } = view;
@@ -69,6 +70,22 @@ function insertBlock(view: EditorView, text: string) {
 
 const TABLE_SNIPPET = '| 列1 | 列2 | 列3 |\n| --- | --- | --- |\n|  |  |  |\n|  |  |  |';
 
+// 对选区应用文字/背景颜色（生成受白名单保护的 <span style>；null 清除）
+function applyColor(view: EditorView, kind: 'color' | 'background-color', hex: string | null) {
+  const sel = view.state.selection.main;
+  if (sel.empty) return;
+  let text = view.state.sliceDoc(sel.from, sel.to);
+  text = text.replace(/<\/?(?:span|mark)[^>]*>/gi, '');
+  if (hex !== null) {
+    text = `<span style="${kind}: ${hex}">${text}</span>`;
+  }
+  view.dispatch({
+    changes: { from: sel.from, to: sel.to, insert: text },
+    selection: { anchor: sel.from, head: sel.from + text.length },
+  });
+  view.focus();
+}
+
 // 在光标处插入当前日期时间（YYYY-MM-DD HH:mm）
 function insertTimestamp(view: EditorView) {
   const d = new Date();
@@ -115,6 +132,7 @@ export function EditorPane({
 }) {
   const viewRef = useRef<EditorView | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [colorMenu, setColorMenu] = useState<'color' | 'background-color' | null>(null);
 
   // 强制同步：store 主动更新内容（恢复版本/外部文件变化）时替换编辑器文档。
   // @uiw/react-codemirror 的受控 value 对外部更新不可靠，必须显式 dispatch。
@@ -134,9 +152,17 @@ export function EditorPane({
       EditorView.domEventHandlers({
         // 点击落点：命中被隐藏的语法标记区域时，光标吸附到最近的可见位置
         mousedown(event, view) {
+          if (event.button !== 0) return false;
+          // 三击快速选中整行（接管行与普通行统一支持）
+          if (event.detail >= 3) {
+            const pos = posFromClick(view, event.clientX, event.clientY) ?? view.posAtCoords({ x: event.clientX, y: event.clientY });
+            if (pos == null) return false;
+            const line = view.state.doc.lineAt(pos);
+            view.dispatch({ selection: { anchor: line.from, head: line.to } });
+            return true;
+          }
           // 纯文本行：交给 CodeMirror 默认处理（保留拖动选择）
           // 带渲染装饰的行：CM 的像素→位置映射不可靠（会落到行尾/别处），接管
-          if (event.button !== 0) return false;
           const pos = posFromClick(view, event.clientX, event.clientY);
           if (pos == null) return false;
           const line = view.state.doc.lineAt(pos);
@@ -203,6 +229,34 @@ export function EditorPane({
         >
           <IconImage />
         </button>
+        <div className="color-tool">
+          <button
+            title="文字颜色（先选中文字）"
+            style={{ color: '#dc2626' }}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => setColorMenu(colorMenu === 'color' ? null : 'color')}
+          >
+            A
+          </button>
+          <button
+            title="背景颜色（先选中文字）"
+            style={{ background: 'linear-gradient(180deg, transparent 55%, #fef08a 55%)' }}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => setColorMenu(colorMenu === 'background-color' ? null : 'background-color')}
+          >
+            A
+          </button>
+          {colorMenu && (
+            <ColorPicker
+              kind={colorMenu}
+              onPick={(hex) => {
+                if (viewRef.current) applyColor(viewRef.current, colorMenu, hex);
+                setColorMenu(null);
+              }}
+              onClose={() => setColorMenu(null)}
+            />
+          )}
+        </div>
         <input
           ref={fileInputRef}
           type="file"

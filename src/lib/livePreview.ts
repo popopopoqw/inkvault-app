@@ -289,6 +289,32 @@ function buildInlineDecorations(view: EditorView): DecorationSet {
     },
   });
 
+  // 文字/背景颜色：<span style="color|background-color: #xxx"> 标签隐藏、内容着色（光标行显示源码）
+  const spanOpen = /<span style="(color|background-color):\s*(#[0-9a-fA-F]{3,8})\s*;?">/gi;
+  const closeTag = '</span>';
+  for (let n = 1; n <= state.doc.lines; n++) {
+    const line = state.doc.line(n);
+    if (!line.text.includes('<span')) continue;
+    if (cursorLines.has(n)) continue;
+    spanOpen.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = spanOpen.exec(line.text))) {
+      const openFrom = line.from + m.index;
+      const openTo = openFrom + m[0].length;
+      const closeIdx = line.text.indexOf(closeTag, spanOpen.lastIndex);
+      const contentTo = closeIdx === -1 ? line.to : line.from + closeIdx;
+      ranges.push(hide.range(openFrom, openTo));
+      ranges.push(Decoration.mark({ attributes: { style: `${m[1]}: ${m[2]}` } }).range(openTo, contentTo));
+      if (closeIdx !== -1) {
+        const closeFrom = line.from + closeIdx;
+        ranges.push(hide.range(closeFrom, closeFrom + closeTag.length));
+        spanOpen.lastIndex = closeIdx + closeTag.length;
+      } else {
+        break;
+      }
+    }
+  }
+
   return Decoration.set(ranges, true);
 }
 
