@@ -56,15 +56,19 @@ export async function desktopListDocs(): Promise<Record<string, DecryptedDoc>> {
   return docs;
 }
 
-export async function desktopCreateNode(parentId: string | null, isFolder: boolean): Promise<DecryptedDoc> {
+export async function desktopCreateNode(parentId: string | null, isFolder: boolean, name?: string): Promise<DecryptedDoc> {
   const node = await invoke<FsNode>('create_node', {
     parent: parentId,
-    name: isFolder ? '新文件夹' : '无标题',
+    name: name ?? (isFolder ? '新文件夹' : '无标题'),
     isFolder,
   });
+  // 根目录下的节点 parentId 归一化为 null（与 desktopListDocs 同规则），
+  // 否则文件树按 parentId===null 找顶层节点时看不到它
+  const root = await desktopRoot();
+  const parent = parentOf(node.path);
   return {
     id: node.path,
-    parentId: parentOf(node.path),
+    parentId: parent === root ? null : parent,
     isFolder: node.is_folder,
     title: node.is_folder ? baseName(node.path) : isMdTitle(node.path),
     content: '',

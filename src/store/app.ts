@@ -28,6 +28,7 @@ interface AppState {
   selectDoc: (id: string) => void;
   toggleFolder: (id: string) => void;
   createNode: (parentId: string | null, isFolder: boolean, initialContent?: string) => Promise<void>;
+  createNodeNamed: (parentId: string | null, isFolder: boolean, name: string) => Promise<void>;
   renameNode: (id: string, title: string) => Promise<void>;
   moveNode: (id: string, parentId: string | null) => Promise<void>;
   deleteNode: (id: string) => Promise<void>;
@@ -159,6 +160,19 @@ export const useStore = create<AppState>()((set, get) => ({
       }));
     } catch {
       get().showToast('创建失败');
+    }
+  },
+
+  createNodeNamed: async (parentId, isFolder, name) => {
+    try {
+      const node = await desktopCreateNode(parentId, isFolder, name);
+      set((s) => ({
+        docs: { ...s.docs, [node.id]: node },
+        activeId: isFolder ? s.activeId : node.id,
+        expanded: parentId ? { ...s.expanded, [parentId]: true } : s.expanded,
+      }));
+    } catch {
+      get().showToast('创建失败（名称非法或已存在）');
     }
   },
 
