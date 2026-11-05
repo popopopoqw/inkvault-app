@@ -1,5 +1,7 @@
 # 墨匣
 
+[![下载最新版](https://img.shields.io/badge/release-%E4%B8%8B%E8%BD%BD%E6%9C%80%E6%96%B0%E7%89%88-4f46e5)](https://github.com/popopopoqw/inkvault-app/releases/latest)
+
 本地 Markdown 笔记应用（macOS / Windows），不联网、不上传。笔记以 Markdown 文件保存在用户主目录的 `墨匣` 文件夹，文件树就是真实的文件夹结构，图片存在 `墨匣/.assets/`。
 
 ![界面截图](docs/screenshot.png)
