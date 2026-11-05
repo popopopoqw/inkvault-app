@@ -10,7 +10,7 @@ permissions:
 
 # 发版主题（随版本号一起更新，出现在 Release 标题里）
 env:
-  RELEASE_TOPIC: '编辑器表格渲染、滚动修复、插入时间'
+  RELEASE_TOPIC: '点击定位修复、文字颜色、全库搜索'
 
 jobs:
   build-desktop:
