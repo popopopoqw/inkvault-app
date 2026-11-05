@@ -83,6 +83,17 @@ function buildDecorations(view: EditorView): DecorationSet {
     if (!nearCursor && to > from) ranges.push(hide.range(from, to));
   };
 
+  // 配对语法（** **、` `、围栏、链接的 [ 和 ](...)）必须整对显示/隐藏，
+  // 否则光标贴着后半个标记时只显示一半语法，看不出语法结构
+  const hidePairIfNoCursor = (first: { from: number; to: number }, ...rest: { from: number; to: number }[]) => {
+    const nearCursor = state.selection.ranges.some((r) =>
+      [first, ...rest].some((m) => r.head >= m.from - 1 && r.head <= m.to + 1)
+    );
+    if (nearCursor) return;
+    ranges.push(hide.range(first.from, first.to));
+    for (const m of rest) ranges.push(hide.range(m.from, m.to));
+  };
+
   syntaxTree(state).iterate({
     enter(node) {
       switch (node.name) {
@@ -108,8 +119,7 @@ function buildDecorations(view: EditorView): DecorationSet {
           const first = node.node.firstChild;
           const last = node.node.lastChild;
           if (!first || !last || first === last) break; // 空内容或异常结构
-          hideIfNoCursor(first.from, first.to);
-          hideIfNoCursor(last.from, last.to);
+          hidePairIfNoCursor({ from: first.from, to: first.to }, { from: last.from, to: last.to });
           const style = node.name === 'StrongEmphasis' ? strongDeco : emDeco;
           ranges.push(style.range(first.to, last.from));
           break;
@@ -118,34 +128,30 @@ function buildDecorations(view: EditorView): DecorationSet {
           const first = node.node.firstChild;
           const last = node.node.lastChild;
           if (!first || !last || first === last) break;
-          hideIfNoCursor(first.from, first.to);
-          hideIfNoCursor(last.from, last.to);
+          hidePairIfNoCursor({ from: first.from, to: first.to }, { from: last.from, to: last.to });
           ranges.push(codeDeco.range(first.to, last.from));
           break;
         }
         case 'FencedCode': {
-          // 围栏行（``` 与语言标记）隐藏，内容行加代码样式
+          // 围栏行（``` 与语言标记）隐藏，内容行加代码样式；两个围栏联动显示
           const marks: { from: number; to: number }[] = [];
           let codeText: { from: number; to: number } | null = null;
           for (const child of node.node.getChildren('CodeMark')) marks.push({ from: child.from, to: child.to });
           const info = node.node.getChild('CodeInfo');
           for (const child of node.node.getChildren('CodeText')) codeText = { from: child.from, to: child.to };
-          if (marks.length >= 1) {
+          const nearAnyFence = marks.some((m) => cursorLines.has(state.doc.lineAt(m.from).number));
+          if (marks.length >= 1 && !nearAnyFence) {
             const firstMark = marks[0];
             const fenceEnd = info ? info.to : firstMark.to;
             const fenceLine = state.doc.lineAt(firstMark.from);
-            if (!cursorLines.has(fenceLine.number)) {
-              hideIfNoCursor(firstMark.from, fenceEnd);
-              ranges.push(lineDeco('cm-md-fence').range(fenceLine.from));
-            }
+            ranges.push(hide.range(firstMark.from, fenceEnd));
+            ranges.push(lineDeco('cm-md-fence').range(fenceLine.from));
           }
-          if (marks.length >= 2) {
+          if (marks.length >= 2 && !nearAnyFence) {
             const last = marks[marks.length - 1];
             const lastLine = state.doc.lineAt(last.from);
-            if (!cursorLines.has(lastLine.number)) {
-              hideIfNoCursor(last.from, last.to);
-              ranges.push(lineDeco('cm-md-fence').range(lastLine.from));
-            }
+            ranges.push(hide.range(last.from, last.to));
+            ranges.push(lineDeco('cm-md-fence').range(lastLine.from));
           }
           if (codeText) {
             const firstLine = state.doc.lineAt(codeText.from).number;
@@ -192,9 +198,12 @@ function buildDecorations(view: EditorView): DecorationSet {
           if (!text.startsWith('[') || closeIdx < 0) break;
           if (!/^\]\(/.test(text.slice(closeIdx))) break; // 无 (url) 目标，非行内链接
           const closePos = start + closeIdx;
-          if (isImage) hideIfNoCursor(node.from, node.from + 1);
-          hideIfNoCursor(start, start + 1);
-          hideIfNoCursor(closePos, node.to);
+          // '[' 与 '](url)' 联动：光标贴着任一半就整对显示源码
+          if (isImage) {
+            hidePairIfNoCursor({ from: node.from, to: node.from + 1 }, { from: start, to: start + 1 }, { from: closePos, to: node.to });
+          } else {
+            hidePairIfNoCursor({ from: start, to: start + 1 }, { from: closePos, to: node.to });
+          }
           if (closePos > start + 1) ranges.push(linkDeco.range(start + 1, closePos));
           break;
         }
