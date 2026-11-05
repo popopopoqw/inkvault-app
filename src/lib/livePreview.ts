@@ -244,17 +244,19 @@ function buildInlineDecorations(view: EditorView): DecorationSet {
           break;
         }
         case 'ListItem': {
-          // 任务列表：把 [x]/[ ] 渲染为 checkbox（ListMark 可能不含尾随空格，正则做兼容）
+          // 任务列表：把 [x]/[ ] 渲染为 checkbox；
+          // [x] 后的空格可为半角/全角/无空格（含行尾空任务），replace 连空格一并替换
           const mark = node.node.getChild('ListMark');
           if (!mark) break;
-          const after = state.sliceDoc(mark.to, mark.to + 8);
-          const m = /^( *)\[([ xX])\] /.exec(after);
+          const after = state.sliceDoc(mark.to, mark.to + 12);
+          const m = /^( *)\[([ xX])\][ \u3000]*/.exec(after);
           if (!m) break;
           const boxFrom = mark.to + m[1].length;
+          const boxLen = m[0].length - m[1].length;
           const line = state.doc.lineAt(boxFrom);
           if (cursorLines.has(line.number)) break;
           ranges.push(
-            Decoration.replace({ widget: new CheckboxWidget(m[2] !== ' ') }).range(boxFrom, boxFrom + 3)
+            Decoration.replace({ widget: new CheckboxWidget(m[2] !== ' ') }).range(boxFrom, boxFrom + boxLen)
           );
           break;
         }

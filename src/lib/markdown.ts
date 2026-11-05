@@ -88,7 +88,7 @@ export function renderMarkdown(source: string): RenderResult {
     const walker = document.createTreeWalker(li, NodeFilter.SHOW_TEXT);
     let node: Node | null;
     while ((node = walker.nextNode())) {
-      const m = /^ *\[( |x|X)\] +/.exec(node.nodeValue ?? '');
+      const m = /^ *\[( |x|X)\][ \u3000]*/.exec(node.nodeValue ?? '');
       if (!m) continue;
       const checkbox = document.createElement('input');
       checkbox.type = 'checkbox';
