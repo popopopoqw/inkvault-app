@@ -2,6 +2,7 @@ import { useDeferredValue, useEffect, useMemo } from 'react';
 import { renderMarkdown } from '../lib/markdown';
 import { resolveAssetUrl } from '../lib/assets';
 import { renderMermaidToSvg } from '../lib/mermaid';
+import { useStore } from '../store/app';
 import type { HeadingInfo } from '../lib/markdown';
 
 export function Preview({
@@ -70,7 +71,16 @@ export function Preview({
   }, [scrollRef, onHeadingIndexChange, result.html]);
 
   return (
-    <div className="preview-scroll" ref={scrollRef as React.Ref<HTMLDivElement>}>
+    <div
+      className="preview-scroll"
+      ref={scrollRef as React.Ref<HTMLDivElement>}
+      onDoubleClick={(e) => {
+        const img = (e.target as HTMLElement).closest?.('img');
+        if (img && !(img as HTMLImageElement).src.startsWith('data:')) {
+          useStore.getState().openImageViewer((img as HTMLImageElement).src);
+        }
+      }}
+    >
       <div className="markdown-body" dangerouslySetInnerHTML={{ __html: result.html }} />
     </div>
   );

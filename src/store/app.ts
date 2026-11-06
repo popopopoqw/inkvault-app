@@ -24,6 +24,7 @@ interface AppState {
   activeId: string | null;
   expanded: Record<string, boolean>;
   reveal: { path: string; lineNo: number } | null;
+  imageViewer: string | null;
   saveState: SaveState;
   toast: string | null;
 
@@ -31,6 +32,8 @@ interface AppState {
   selectDoc: (id: string) => void;
   openSearchHit: (path: string, lineNo: number) => void;
   clearReveal: () => void;
+  openImageViewer: (src: string) => void;
+  closeImageViewer: () => void;
   toggleFolder: (id: string) => void;
   createNode: (parentId: string | null, isFolder: boolean, initialContent?: string) => Promise<void>;
   createNodeNamed: (parentId: string | null, isFolder: boolean, name: string) => Promise<void>;
@@ -141,6 +144,7 @@ export const useStore = create<AppState>()((set, get) => ({
   activeId: null,
   expanded: {},
   reveal: null,
+  imageViewer: null,
   saveState: 'idle',
   toast: null,
 
@@ -176,6 +180,9 @@ export const useStore = create<AppState>()((set, get) => ({
   },
 
   clearReveal: () => set({ reveal: null }),
+
+  openImageViewer: (src) => set({ imageViewer: src }),
+  closeImageViewer: () => set({ imageViewer: null }),
 
   selectDoc: (id) => {
     // 切换文档前把未落盘的内容先写出去，防止防抖窗口内切换导致丢失

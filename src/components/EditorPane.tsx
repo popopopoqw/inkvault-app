@@ -195,6 +195,13 @@ export function EditorPane({
         },
         // 双击选中文本：选中点击位置所在的连续词语段（字母/数字/汉字，遇标点空白停止）
         dblclick(event, view) {
+          // 双击图片 → 大图查看
+          const target = event.target as HTMLElement | null;
+          const img = target?.closest?.('.cm-md-image img');
+          if (img) {
+            useStore.getState().openImageViewer((img as HTMLImageElement).src);
+            return true;
+          }
           const clicked = posFromClick(view, event.clientX, event.clientY);
           if (clicked == null) return false;
           const pos = resolveVisiblePos(view, clicked);
