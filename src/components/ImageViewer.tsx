@@ -34,11 +34,12 @@ export function ImageViewer() {
         alt=""
         style={{ transform: `scale(${scale})` }}
         onClick={(e) => {
-          if (e.detail >= 2) setScale(1); // 双击复位
+          // 双击在适应大小（1x）与放大（2.5x）之间切换
+          if (e.detail >= 2) setScale((v) => (v === 1 ? 2.5 : 1));
           e.stopPropagation();
         }}
       />
-      <span className="iv-tip">滚轮缩放 · 双击复位 · Esc 关闭</span>
+      <span className="iv-tip">双击放大/缩小 · 滚轮自由缩放 · Esc 关闭</span>
     </div>
   );
 }
