@@ -169,7 +169,12 @@ function invokeMock<T>(cmd: string, args: Record<string, unknown> = {}): Promise
           mkdirp(root + '/.assets');
           const ext = String(args.ext ?? 'png').replace(/[^a-z0-9]/gi, '').slice(0, 8);
           const id = `${uniqueId()}.${ext}`;
-          fs.set(`${root}/.assets/${id}`, { type: 'file', content: JSON.stringify(args.data) });
+          // 存 data URL，mock 的 convertFileSrc 直接返回（可被 <img> 真实渲染）
+          const bytes = (args.data as number[]) ?? [];
+          let binary = '';
+          for (const b of bytes) binary += String.fromCharCode(b);
+          const mime = ext === 'jpg' ? 'jpeg' : ext === 'svg' ? 'svg+xml' : ext;
+          fs.set(`${root}/.assets/${id}`, { type: 'file', content: `data:image/${mime};base64,` + btoa(binary) });
           resolve(id as T);
           return;
         }
@@ -262,6 +267,8 @@ function invokeMock<T>(cmd: string, args: Record<string, unknown> = {}): Promise
 // ---- @tauri-apps/api/core mock ----
 export const invoke = invokeMock;
 export function convertFileSrc(path: string): string {
+  const content = fs.get(path)?.content;
+  if (typeof content === 'string' && content.startsWith('data:')) return content;
   return 'mock-asset://' + encodeURIComponent(path);
 }
 

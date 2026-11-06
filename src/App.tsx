@@ -8,6 +8,7 @@ import { Preview, TocPanel } from './components/Preview';
 import { extractHeadings } from './lib/markdown';
 import { Logo, IconEye, IconHistory, IconSearch } from './components/Icons';
 import { SearchPanel } from './components/SearchPanel';
+import { ImageViewer } from './components/ImageViewer';
 import { HistoryPanel } from './components/HistoryPanel';
 
 type ViewMode = 'edit' | 'preview';
@@ -264,6 +265,7 @@ function Workspace() {
         <HistoryPanel docId={activeDoc.id} onClose={() => setShowHistory(false)} />
       )}
       {showSearch && <SearchPanel onClose={() => setShowSearch(false)} />}
+      <ImageViewer />
     </div>
   );
 }
