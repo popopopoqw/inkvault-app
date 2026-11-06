@@ -10,7 +10,7 @@ permissions:
 
 # 发版主题（随版本号一起更新，出现在 Release 标题里）
 env:
-  RELEASE_TOPIC: '图片查看器、任务列表对齐修复'
+  RELEASE_TOPIC: '大纲布局修复'
 
 jobs:
   build-desktop:
