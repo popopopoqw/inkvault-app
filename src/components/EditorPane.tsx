@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import CodeMirror, { EditorSelection, EditorView, Prec, keymap } from '@uiw/react-codemirror';
+import CodeMirror, { EditorSelection, EditorView, Prec, drawSelection, keymap } from '@uiw/react-codemirror';
 import { markdown } from '@codemirror/lang-markdown';
 import { Table } from '@lezer/markdown';
 import { languages } from '@codemirror/language-data';
@@ -145,6 +145,15 @@ export function EditorPane({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [colorMenu, setColorMenu] = useState<'color' | 'background-color' | null>(null);
 
+  // 新建文档后自动聚焦，光标立即可见（否则焦点留在对话框按钮上，光标延迟出现）
+  const focusDoc = useStore((s) => s.focusDoc);
+  useEffect(() => {
+    if (!focusDoc || focusDoc !== docId || !viewRef.current) return;
+    viewRef.current.focus();
+    viewRef.current.dispatch({ selection: { anchor: 0 } });
+    useStore.getState().clearFocusRequest();
+  }, [focusDoc, docId]);
+
   // 搜索跳转：定位光标到目标行并滚动
   const reveal = useStoreReveal();
   useEffect(() => {
@@ -169,6 +178,8 @@ export function EditorPane({
 
   const extensions = useMemo(
     () => [
+      // 光标常显不闪烁：默认 1.2s 闪烁周期的隐藏相位会让点击后的光标"延迟出现"
+      drawSelection({ cursorBlinkRate: 0 }),
       markdown({ codeLanguages: languages, extensions: [Table] }),
       livePreview,
       EditorView.domEventHandlers({

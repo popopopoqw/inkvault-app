@@ -25,6 +25,7 @@ interface AppState {
   expanded: Record<string, boolean>;
   reveal: { path: string; lineNo: number } | null;
   imageViewer: string | null;
+  focusDoc: string | null;
   saveState: SaveState;
   toast: string | null;
 
@@ -34,6 +35,8 @@ interface AppState {
   clearReveal: () => void;
   openImageViewer: (src: string) => void;
   closeImageViewer: () => void;
+  requestFocus: (docId: string) => void;
+  clearFocusRequest: () => void;
   toggleFolder: (id: string) => void;
   createNode: (parentId: string | null, isFolder: boolean, initialContent?: string) => Promise<void>;
   createNodeNamed: (parentId: string | null, isFolder: boolean, name: string) => Promise<void>;
@@ -145,6 +148,7 @@ export const useStore = create<AppState>()((set, get) => ({
   expanded: {},
   reveal: null,
   imageViewer: null,
+  focusDoc: null,
   saveState: 'idle',
   toast: null,
 
@@ -184,6 +188,9 @@ export const useStore = create<AppState>()((set, get) => ({
   openImageViewer: (src) => set({ imageViewer: src }),
   closeImageViewer: () => set({ imageViewer: null }),
 
+  requestFocus: (docId) => set({ focusDoc: docId }),
+  clearFocusRequest: () => set({ focusDoc: null }),
+
   selectDoc: (id) => {
     // 切换文档前把未落盘的内容先写出去，防止防抖窗口内切换导致丢失
     void get().flush();
@@ -204,6 +211,7 @@ export const useStore = create<AppState>()((set, get) => ({
         docs: { ...s.docs, [node.id]: node },
         activeId: isFolder ? s.activeId : node.id,
         expanded: parentId ? { ...s.expanded, [parentId]: true } : s.expanded,
+        focusDoc: isFolder ? null : node.id,
       }));
     } catch {
       get().showToast('创建失败');
@@ -218,6 +226,7 @@ export const useStore = create<AppState>()((set, get) => ({
         docs: { ...s.docs, [node.id]: node },
         activeId: isFolder ? s.activeId : node.id,
         expanded: parentId ? { ...s.expanded, [parentId]: true } : s.expanded,
+        focusDoc: isFolder ? null : node.id,
       }));
     } catch {
       get().showToast('创建失败（名称非法或已存在）');
