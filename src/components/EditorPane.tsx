@@ -108,6 +108,9 @@ function insertTimestamp(view: EditorView) {
 }
 const CODE_SNIPPET = '```ts\n\n```';
 
+// 各文档最后的光标位置：切换预览/编辑模式（编辑器销毁重建）或切文档后恢复
+const lastCursor = new Map<string, number>();
+
 interface Tool {
   label: string;
   title: string;
@@ -143,6 +146,8 @@ export function EditorPane({
 }) {
   const viewRef = useRef<EditorView | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const docIdRef = useRef(docId);
+  docIdRef.current = docId;
   const [colorMenu, setColorMenu] = useState<'color' | 'background-color' | null>(null);
 
   // 新建文档后自动聚焦，光标立即可见（否则焦点留在对话框按钮上，光标延迟出现）
@@ -181,6 +186,9 @@ export function EditorPane({
       // 光标常显不闪烁：默认 1.2s 闪烁周期的隐藏相位会让点击后的光标"延迟出现"
       drawSelection({ cursorBlinkRate: 0 }),
       markdown({ codeLanguages: languages, extensions: [Table] }),
+      EditorView.updateListener.of((u) => {
+        if (u.selectionSet) lastCursor.set(docIdRef.current, u.state.selection.main.head);
+      }),
       livePreview,
       EditorView.domEventHandlers({
         // 点击落点：命中被隐藏的语法标记区域时，光标吸附到最近的可见位置
@@ -329,6 +337,21 @@ export function EditorPane({
           onCreateEditor={(view) => {
             viewRef.current = view;
             (window as unknown as { __cmView?: EditorView }).__cmView = view; // 调试与自动化测试钩子
+            // 编辑器（重）挂载时恢复光标位置并聚焦：模式切换后编辑器销毁重建，
+            // 不主动聚焦会导致光标长时间不可见
+            const saved = lastCursor.get(docId);
+            if (saved != null && saved <= view.state.doc.length) {
+              view.dispatch({ selection: { anchor: saved } });
+            }
+            view.focus();
+            // mount 时的 focus 可能早于 CM 事件监听就绪，CM 感知不到焦点（hasFocus=false），
+            // caret 不绘制——下一帧若 CM 仍未感知则强制 blur+focus 补发事件
+            requestAnimationFrame(() => {
+              if (viewRef.current === view && !view.hasFocus) {
+                view.contentDOM.blur();
+                view.focus();
+              }
+            });
             onReady(view);
           }}
         />
