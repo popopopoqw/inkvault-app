@@ -10,7 +10,7 @@ permissions:
 
 # 发版主题（随版本号一起更新，出现在 Release 标题里）
 env:
-  RELEASE_TOPIC: '光标体验修复'
+  RELEASE_TOPIC: 'macOS 图标规范修复'
 
 jobs:
   build-desktop:
