@@ -1,6 +1,6 @@
 [package]
 name = "inkvault"
-version = "0.1.8"
+version = "0.1.9"
 description = "墨匣桌面客户端（本地 Markdown 笔记）"
 edition = "2021"
 
