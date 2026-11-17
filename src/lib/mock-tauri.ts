@@ -13,7 +13,21 @@ const DEFAULT_ROOT = '/users/test/墨匣';
 let root: string = DEFAULT_ROOT;
 const fs = new Map<string, FsEntry>();
 // 版本历史模拟：docPath -> 版本列表
-const history = new Map<string, { meta: any; full: string; diff: { kind: string; text: string }[] }[]>();
+interface MockVersion {
+  meta: {
+    seq: number;
+    time_ms: number;
+    added: number;
+    removed: number;
+    is_full: boolean;
+    kind: string;
+    line_count: number;
+    content_bytes: number;
+  };
+  full: string;
+  diff: { kind: string; text: string }[];
+}
+const history = new Map<string, MockVersion[]>();
 let idCounter = 0;
 
 const uniqueId = () => Date.now().toString(16) + (idCounter++).toString(16).padStart(4, '0');
@@ -50,6 +64,59 @@ function uniqueTarget(dir: string, name: string, isFolder: boolean): string {
     if (!fs.has(`${dir}/${file}`)) return `${dir}/${file}`;
     n++;
   }
+}
+
+function recordMockSnapshot(path: string, content: string, kind: string, fallback = ''): boolean {
+  const list = history.get(path) ?? [];
+  const previous = list.at(-1)?.full ?? fallback;
+  const saveAfterCheckpoint = kind === 'saved' && list.at(-1)?.meta.kind === 'unsaved';
+  if (previous === content && !saveAfterCheckpoint) return false;
+  const lines = (text: string) =>
+    text.length === 0 ? [] : text.split('\n').slice(0, text.endsWith('\n') ? -1 : undefined);
+  const lineCount = (text: string) =>
+    lines(text).length;
+  if (list.length === 0) {
+    list.push({
+      meta: {
+        seq: 0,
+        time_ms: Date.now(),
+        added: 0,
+        removed: 0,
+        is_full: true,
+        kind: 'baseline',
+        line_count: lineCount(previous),
+        content_bytes: new TextEncoder().encode(previous).length,
+      },
+      full: previous,
+      diff: [],
+    });
+  }
+  const newLines = lines(content);
+  const savedBase = kind === 'saved'
+    ? [...list].reverse().find((version) => version.meta.kind === 'saved' || version.meta.is_full)?.full ?? previous
+    : previous;
+  const summaryOldLines = lines(savedBase);
+  const addedLines = newLines.filter((line) => !summaryOldLines.includes(line));
+  const removedLines = summaryOldLines.filter((line) => !newLines.includes(line));
+  list.push({
+    meta: {
+      seq: list.at(-1)!.meta.seq + 1,
+      time_ms: Date.now(),
+      added: addedLines.length,
+      removed: removedLines.length,
+      is_full: false,
+      kind,
+      line_count: lineCount(content),
+      content_bytes: new TextEncoder().encode(content).length,
+    },
+    full: content,
+    diff: [
+      ...addedLines.map((text) => ({ kind: 'add', text })),
+      ...removedLines.map((text) => ({ kind: 'del', text })),
+    ],
+  });
+  history.set(path, list);
+  return true;
 }
 
 function walk(dir: string, out: { path: string; name: string; is_folder: boolean }[]) {
@@ -91,25 +158,15 @@ function invokeMock<T>(cmd: string, args: Record<string, unknown> = {}): Promise
           const oldContent = fs.get(p)?.content ?? '';
           const newContent = args.content as string;
           fs.set(p, { type: 'file', content: newContent });
-          // 模拟快照（跳过间隔节流，测试用）
-          const list = history.get(p) ?? [];
-          const oldLines = oldContent.split('\n');
-          const newLines = newContent.split('\n');
-          const added = newLines.filter((l) => !oldLines.includes(l)).length;
-          const removed = oldLines.filter((l) => !newLines.includes(l)).length;
-          if (list.length === 0) {
-            list.push({ meta: { seq: 0, time_ms: Date.now(), added: 0, removed: 0, is_full: true }, full: oldContent, diff: [] });
-          }
-          list.push({
-            meta: { seq: list[list.length - 1].meta.seq + 1, time_ms: Date.now(), added, removed, is_full: false },
-            full: newContent,
-            diff: [
-              ...newLines.filter((l) => !oldLines.includes(l)).map((text) => ({ kind: 'add', text })),
-              ...oldLines.filter((l) => !newLines.includes(l)).map((text) => ({ kind: 'del', text })),
-            ],
-          });
-          history.set(p, list);
+          recordMockSnapshot(p, newContent, 'saved', oldContent);
           resolve(undefined as T);
+          return;
+        }
+        case 'record_unsaved_snapshot': {
+          const p = safePath(args.path as string);
+          const content = args.content as string;
+          const previous = fs.get(p)?.content ?? '';
+          resolve(recordMockSnapshot(p, content, 'unsaved', previous) as T);
           return;
         }
         case 'create_node': {
@@ -237,20 +294,9 @@ function invokeMock<T>(cmd: string, args: Record<string, unknown> = {}): Promise
           const list = history.get(p) ?? [];
           const v = list.find((x) => x.meta.seq === args.seq);
           if (!v) throw new Error('version not found');
-          // 恢复前把当前内容入历史（同 write_doc 的模拟逻辑）
           const cur = fs.get(p)?.content ?? '';
-          const curLines = cur.split('\n');
-          const vLines = v.full.split('\n');
-          list.push({
-            meta: { seq: list[list.length - 1].meta.seq + 1, time_ms: Date.now(), is_full: false,
-              added: vLines.filter((l) => !curLines.includes(l)).length,
-              removed: curLines.filter((l) => !vLines.includes(l)).length },
-            full: v.full,
-            diff: [
-              ...vLines.filter((l) => !curLines.includes(l)).map((text) => ({ kind: 'add', text })),
-              ...curLines.filter((l) => !vLines.includes(l)).map((text) => ({ kind: 'del', text })),
-            ],
-          });
+          recordMockSnapshot(p, cur, 'restore_before', cur);
+          recordMockSnapshot(p, v.full, 'restore', cur);
           fs.set(p, { type: 'file', content: v.full });
           resolve(v.full as T);
           return;

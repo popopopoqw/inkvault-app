@@ -472,20 +472,24 @@ input[type='checkbox'] { width: 13px; height: 13px; padding: 0; margin: 0 7px 0 
   padding: 14px 18px 10px; border-bottom: 1px solid var(--border); flex-shrink: 0;
 }
 .history-head h2 { margin: 0; font-size: 15px; }
+.history-head-actions { display: flex; gap: 8px; }
+.history-error-inline { margin: 0; padding: 6px 18px; color: var(--danger); font-size: 12px; }
 .history-body { flex: 1; display: flex; min-height: 0; }
 .history-list {
-  width: 190px; flex-shrink: 0; overflow-y: auto;
+  width: 260px; flex-shrink: 0; overflow-y: auto;
   border-right: 1px solid var(--border); padding: 8px;
 }
 .history-item {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 7px 10px; border-radius: 8px; cursor: pointer; font-size: 12.5px;
+  display: flex; align-items: flex-start;
+  padding: 8px 10px; border-radius: 8px; cursor: pointer; font-size: 12px;
 }
 .history-item:hover { background: #f0f0f7; }
 .history-item.active { background: var(--accent-soft); }
-.hi-time { color: var(--text); }
+.hi-main { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.hi-time { color: var(--text); font-variant-numeric: tabular-nums; }
 .history-item.active .hi-time { color: var(--accent); font-weight: 600; }
-.hi-stat em { font-style: normal; font-size: 11.5px; }
+.hi-stat { color: var(--text-dim); line-height: 1.4; font-size: 11px; }
+.hi-stat em, .history-summary em { font-style: normal; font-size: inherit; }
 .hi-stat em.add { color: #16a34a; }
 .hi-stat em.del { color: var(--danger); margin-left: 4px; }
 .history-detail { flex: 1; display: flex; flex-direction: column; min-width: 0; }
@@ -496,6 +500,16 @@ input[type='checkbox'] { width: 13px; height: 13px; padding: 0; margin: 0 7px 0 
   background: linear-gradient(135deg, #6d6af7, var(--accent));
 }
 .hd-actions .primary:disabled { opacity: 0.45; cursor: not-allowed; }
+.history-summary {
+  display: flex; flex-direction: column; gap: 4px;
+  margin: 0 14px 10px; padding: 9px 11px;
+  border: 1px solid var(--border); border-radius: 9px;
+  color: var(--text-dim); font-size: 11.5px;
+}
+.history-summary strong { color: var(--text); font-size: 12.5px; }
+.history-summary .add { color: #16a34a; }
+.history-summary .del { color: var(--danger); }
+.history-error { margin: 14px; color: var(--danger); font-size: 13px; }
 .history-diff {
   flex: 1; overflow-y: auto; margin: 0 14px 14px;
   border: 1px solid var(--border); border-radius: 10px;

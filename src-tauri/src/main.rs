@@ -2,7 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use notify::{RecursiveMode, Watcher};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -14,8 +14,6 @@ const VAULT_DIR: &str = "墨匣";
 const ASSETS_DIR: &str = ".assets";
 /// 版本历史目录（增量快照链：一个 full + 若干 delta）
 const HISTORY_DIR: &str = ".history";
-/// 同一文档两次快照的最小间隔
-const SNAPSHOT_MIN_INTERVAL_MS: u64 = 10 * 60 * 1000;
 /// 版本数超过该值时收敛链头（重放生成新全文，丢弃更老的一半）
 const VERSIONS_HARD_LIMIT: usize = 60;
 
@@ -39,6 +37,26 @@ pub struct VersionInfo {
     pub added: u64,
     pub removed: u64,
     pub is_full: bool,
+    pub kind: String,
+    pub line_count: u64,
+    pub content_bytes: u64,
+    pub ends_with_newline: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone, Default)]
+struct VersionMeta {
+    #[serde(default)]
+    kind: String,
+    #[serde(default)]
+    added: u64,
+    #[serde(default)]
+    removed: u64,
+    #[serde(default)]
+    line_count: u64,
+    #[serde(default)]
+    content_bytes: u64,
+    #[serde(default)]
+    ends_with_newline: bool,
 }
 
 #[derive(Serialize)]
@@ -413,18 +431,31 @@ fn now_ms() -> u64 {
         .as_millis() as u64
 }
 
-/// 读取版本索引（按文件名排序 = seq 升序），从目录扫描重建
+/// 读取版本索引，并为旧格式快照补齐可重建的统计信息
 fn read_versions(dir: &Path) -> Vec<VersionInfo> {
     let mut files: Vec<PathBuf> = fs::read_dir(dir)
         .map(|rd| rd.flatten().map(|e| e.path()).collect())
         .unwrap_or_default();
-    files.sort();
-    let mut out = Vec::new();
+    files.sort_by_key(|f| {
+        f.file_name()
+            .and_then(|n| n.to_str())
+            .and_then(parse_version_name)
+            .unwrap_or((u64::MAX, u64::MAX))
+    });
+    let mut out: Vec<VersionInfo> = Vec::new();
+    let mut has_meta = Vec::new();
     for f in files {
         let name = f.file_name().unwrap_or_default().to_string_lossy().to_string();
         let Some((seq, time_ms)) = parse_version_name(&name) else { continue };
         let is_full = name.ends_with(".full");
-        let (added, removed) = if is_full {
+        let metadata = fs::read_to_string(dir.join(meta_file_name(seq, time_ms)))
+            .ok()
+            .and_then(|raw| serde_json::from_str::<VersionMeta>(&raw).ok());
+        let found_meta = metadata.is_some();
+        let metadata = metadata.unwrap_or_default();
+        let (added, removed) = if found_meta {
+            (metadata.added, metadata.removed)
+        } else if is_full {
             (0, 0)
         } else {
             fs::read_to_string(&f)
@@ -433,13 +464,53 @@ fn read_versions(dir: &Path) -> Vec<VersionInfo> {
                 .map(|ops| count_ops(&ops))
                 .unwrap_or((0, 0))
         };
-        out.push(VersionInfo { seq, time_ms, added, removed, is_full });
+        let kind = if !metadata.kind.is_empty() {
+            metadata.kind
+        } else if is_full && seq == 0 {
+            "baseline".to_string()
+        } else if is_full {
+            "compaction".to_string()
+        } else {
+            "saved".to_string()
+        };
+        let version = VersionInfo {
+            seq,
+            time_ms,
+            added,
+            removed,
+            is_full,
+            kind,
+            line_count: metadata.line_count,
+            content_bytes: metadata.content_bytes,
+            ends_with_newline: metadata.ends_with_newline
+                || (is_full && fs::read_to_string(&f).map(|text| text.ends_with('\n')).unwrap_or(false)),
+        };
+        if out.last().map(|previous| previous.seq == seq).unwrap_or(false) {
+            let previous = out.last_mut().unwrap();
+            if is_full || !previous.is_full {
+                *previous = version;
+                *has_meta.last_mut().unwrap() = found_meta;
+            }
+        } else {
+            out.push(version);
+            has_meta.push(found_meta);
+        }
+    }
+    for index in 0..out.len() {
+        if has_meta[index] {
+            continue;
+        }
+        if let Some(content) = reconstruct(dir, &out[..=index]) {
+            let version = &mut out[index];
+            version.line_count = content.lines().count() as u64;
+            version.content_bytes = content.len() as u64;
+        }
     }
     out
 }
 
 fn parse_version_name(name: &str) -> Option<(u64, u64)> {
-    let stem = name.trim_end_matches(".delta").trim_end_matches(".full");
+    let stem = name.strip_suffix(".delta").or_else(|| name.strip_suffix(".full"))?;
     let mut parts = stem.splitn(2, '-');
     let seq = parts.next()?.parse().ok()?;
     let time = parts.next()?.parse().ok()?;
@@ -459,6 +530,14 @@ fn count_ops(ops: &[DiffOp]) -> (u64, u64) {
     (added, removed)
 }
 
+fn content_lines(content: &str) -> Vec<String> {
+    if content.is_empty() {
+        Vec::new()
+    } else {
+        content.split_terminator('\n').map(str::to_string).collect()
+    }
+}
+
 fn version_file_name(v: &VersionInfo) -> String {
     if v.is_full {
         format!("{}-{}.full", v.seq, v.time_ms)
@@ -467,44 +546,109 @@ fn version_file_name(v: &VersionInfo) -> String {
     }
 }
 
-static LAST_SNAPSHOT: LazyLock<RwLock<std::collections::HashMap<PathBuf, u64>>> =
-    LazyLock::new(|| RwLock::new(std::collections::HashMap::new()));
+fn meta_file_name(seq: u64, time_ms: u64) -> String {
+    format!("{seq}-{time_ms}.meta.json")
+}
 
-/// 写盘后调用：把「旧内容 → 新内容」的变化存为增量快照。
-/// force = true 时无视间隔（恢复版本前强制存档用）。
-fn maybe_snapshot(root: &Path, doc: &Path, old_content: Option<&str>, new_content: &str, force: bool) {
+fn write_version_file(
+    dir: &Path,
+    version: &VersionInfo,
+    content: &str,
+) -> Result<(), String> {
+    let name = version_file_name(version);
+    fs::write(dir.join(&name), content).map_err(|e| e.to_string())?;
+    let meta = VersionMeta {
+        kind: version.kind.clone(),
+        added: version.added,
+        removed: version.removed,
+        line_count: version.line_count,
+        content_bytes: version.content_bytes,
+        ends_with_newline: version.ends_with_newline,
+    };
+    let encoded = serde_json::to_string(&meta).map_err(|e| e.to_string())?;
+    fs::write(dir.join(meta_file_name(version.seq, version.time_ms)), encoded)
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// 记录当前内容为增量快照。无变化时不生成重复版本。
+fn record_snapshot(
+    root: &Path,
+    doc: &Path,
+    disk_before: Option<&str>,
+    content: &str,
+    kind: &str,
+) -> Result<bool, String> {
     let dir = history_dir(root, doc);
     let versions = read_versions(&dir);
-    if !versions.is_empty() && !force {
-        if let Ok(m) = LAST_SNAPSHOT.read() {
-            if let Some(t) = m.get(doc) {
-                if now_ms().saturating_sub(*t) < SNAPSHOT_MIN_INTERVAL_MS {
-                    return; // 距上次快照太近，跳过（中间版本被覆盖是衰减策略的预期）
-                }
-            }
-        }
+    let previous = if let Some(last) = versions.last() {
+        reconstruct(&dir, &versions).ok_or_else(|| "无法重建最新历史版本".to_string())?
+    } else {
+        disk_before
+            .map(str::to_string)
+            .or_else(|| fs::read_to_string(doc).ok())
+            .unwrap_or_default()
+    };
+    let save_after_checkpoint = kind == "saved"
+        && versions.last().map(|version| version.kind == "unsaved").unwrap_or(false);
+    if previous == content && !save_after_checkpoint {
+        return Ok(false);
     }
-    let _ = fs::create_dir_all(&dir);
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let time = now_ms();
     let next_seq = versions.last().map(|v| v.seq + 1).unwrap_or(0);
     if versions.is_empty() {
-        // 首版：写盘前的旧内容存全文（新文件则为空），随后是到新内容的 delta
-        let full_name = format!("{next_seq}-{time}.full");
-        let full_path = dir.join(&full_name);
-        let _ = fs::write(&full_path, old_content.unwrap_or(""));
-        note_self_write(&full_path);
+        let baseline = disk_before
+            .map(str::to_string)
+            .or_else(|| fs::read_to_string(doc).ok())
+            .unwrap_or_default();
+        let baseline_version = VersionInfo {
+            seq: next_seq,
+            time_ms: time,
+            added: 0,
+            removed: 0,
+            is_full: true,
+            kind: "baseline".to_string(),
+            line_count: baseline.lines().count() as u64,
+            content_bytes: baseline.len() as u64,
+            ends_with_newline: baseline.ends_with('\n'),
+        };
+        write_version_file(&dir, &baseline_version, &baseline)?;
+        note_self_write(&dir.join(version_file_name(&baseline_version)));
     }
     let delta_seq = if versions.is_empty() { next_seq + 1 } else { next_seq };
-    let old_lines: Vec<String> = old_content.unwrap_or("").lines().map(|s| s.to_string()).collect();
-    let new_lines: Vec<String> = new_content.lines().map(|s| s.to_string()).collect();
+    let summary_base = if kind == "saved" {
+        versions.iter().rposition(|version| version.kind == "saved" || version.is_full)
+            .and_then(|index| reconstruct(&dir, &versions[..=index]))
+            .unwrap_or_else(|| previous.clone())
+    } else {
+        previous.clone()
+    };
+    let old_lines = content_lines(&previous);
+    let new_lines = content_lines(new_content);
+    let ops = line_diff(&old_lines, &new_lines);
+    let (added, removed) = if summary_base == previous {
+        count_ops(&ops)
+    } else {
+        count_ops(&line_diff(&content_lines(&summary_base), &new_lines))
+    };
+    let version = VersionInfo {
+        seq: delta_seq,
+        time_ms: time,
+        added,
+        removed,
+        is_full: false,
+        kind: kind.to_string(),
+        line_count: new_content.lines().count() as u64,
+        content_bytes: new_content.len() as u64,
+        ends_with_newline: new_content.ends_with('\n'),
+    };
     let delta_name = format!("{delta_seq}-{time}.delta");
-    let delta_path = dir.join(&delta_name);
-    let _ = fs::write(&delta_path, encode_delta(&line_diff(&old_lines, &new_lines)));
-    note_self_write(&delta_path);
-    if let Ok(mut m) = LAST_SNAPSHOT.write() {
-        m.insert(doc.to_path_buf(), time);
-    }
-    compact_history(&dir, &versions);
+    write_version_file(&dir, &version, &encode_delta(&ops))?;
+    note_self_write(&dir.join(delta_name));
+    let current_versions = read_versions(&dir);
+    compact_history(&dir, &current_versions);
+    Ok(true)
 }
 
 /// 版本数超限时收敛：把最老一半重放成新的全文链头，丢弃更老的 delta（链保持可重放）
@@ -515,11 +659,22 @@ fn compact_history(dir: &Path, versions: &[VersionInfo]) {
     let cut = versions.len() / 2;
     let Some(content) = reconstruct(dir, &versions[..=cut]) else { return };
     let pivot = &versions[cut];
-    let new_full = dir.join(format!("{}-{}.full", pivot.seq, now_ms()));
-    if fs::write(&new_full, content).is_ok() {
-        note_self_write(&new_full);
-        for v in &versions[..cut] {
+    let compacted = VersionInfo {
+        seq: pivot.seq,
+        time_ms: now_ms(),
+        added: 0,
+        removed: 0,
+        is_full: true,
+        kind: "compaction".to_string(),
+        line_count: content.lines().count() as u64,
+        content_bytes: content.len() as u64,
+        ends_with_newline: content.ends_with('\n'),
+    };
+    if write_version_file(dir, &compacted, &content).is_ok() {
+        note_self_write(&dir.join(version_file_name(&compacted)));
+        for v in &versions[..=cut] {
             let _ = fs::remove_file(dir.join(version_file_name(v)));
+            let _ = fs::remove_file(dir.join(meta_file_name(v.seq, v.time_ms)));
         }
     }
 }
@@ -528,19 +683,26 @@ fn compact_history(dir: &Path, versions: &[VersionInfo]) {
 fn reconstruct(dir: &Path, versions: &[VersionInfo]) -> Option<String> {
     let mut text: Vec<String> = Vec::new();
     let mut started = false;
+    let mut ends_with_newline = false;
     for v in versions {
         let raw = fs::read_to_string(dir.join(version_file_name(v))).ok()?;
         if v.is_full {
-            text = raw.lines().map(|s| s.to_string()).collect();
+            text = content_lines(&raw);
             started = true;
+            ends_with_newline = raw.ends_with('\n');
         } else if started {
             let ops = decode_delta(&raw).ok()?;
             text = apply_delta(&text, &ops).ok()?;
+            ends_with_newline = v.ends_with_newline;
         } else {
             return None; // 链头必须是全文
         }
     }
-    Some(text.join("\n"))
+    let mut content = text.join("\n");
+    if ends_with_newline {
+        content.push('\n');
+    }
+    Some(content)
 }
 
 #[tauri::command]
@@ -601,9 +763,16 @@ fn write_doc(app: tauri::AppHandle, path: String, content: String) -> Result<(),
     let r = fs::write(&p, &content).map_err(|e| e.to_string());
     if r.is_ok() {
         note_self_write(&p);
-        maybe_snapshot(&root, &p, old.as_deref(), &content, false);
+        record_snapshot(&root, &p, old.as_deref(), &content, "saved")?;
     }
     r
+}
+
+#[tauri::command]
+fn record_unsaved_snapshot(app: tauri::AppHandle, path: String, content: String) -> Result<bool, String> {
+    let root = vault_root(&app)?;
+    let p = safe_path(&root, &path)?;
+    record_snapshot(&root, &p, None, &content, "unsaved")
 }
 
 #[tauri::command]
@@ -814,20 +983,36 @@ fn read_version_diff(app: tauri::AppHandle, path: String, seq: u64) -> Result<Ve
     let p = safe_path(&root, &path)?;
     let dir = history_dir(&root, &p);
     let versions = read_versions(&dir);
-    let v = versions.iter().find(|v| v.seq == seq).ok_or("version not found")?;
-    let raw = fs::read_to_string(dir.join(version_file_name(v))).map_err(|e| e.to_string())?;
-    let ops = decode_delta(&raw)?;
+    let idx = versions.iter().position(|v| v.seq == seq).ok_or("version not found")?;
+    let v = &versions[idx];
+    let ops = if v.kind == "saved" {
+        let base_idx = versions[..idx]
+            .iter()
+            .rposition(|previous| previous.kind == "saved" || previous.is_full);
+        if let Some(base_idx) = base_idx {
+            let before = reconstruct(&dir, &versions[..=base_idx])
+                .ok_or_else(|| "无法重建对比基准版本".to_string())?;
+            let current = reconstruct(&dir, &versions[..=idx])
+                .ok_or_else(|| "无法重建该版本".to_string())?;
+            line_diff(&content_lines(&before), &content_lines(&current))
+        } else {
+            Vec::new()
+        }
+    } else {
+        let raw = fs::read_to_string(dir.join(version_file_name(v))).map_err(|e| e.to_string())?;
+        decode_delta(&raw)?
+    };
     let mut out = Vec::new();
     for op in &ops {
         match op {
             DiffOp::Add(lines) => {
                 for l in lines {
-                    out.push(DiffLine { kind: "add".into(), text: l.clone() });
+                    out.push(DiffLine { kind: "add".into(), text: l.trim_end_matches('\r').to_string() });
                 }
             }
             DiffOp::Del(lines) => {
                 for l in lines {
-                    out.push(DiffLine { kind: "del".into(), text: l.clone() });
+                    out.push(DiffLine { kind: "del".into(), text: l.trim_end_matches('\r').to_string() });
                 }
             }
             DiffOp::Keep(_) => {}
@@ -846,7 +1031,7 @@ fn read_version(app: tauri::AppHandle, path: String, seq: u64) -> Result<String,
     reconstruct(&dir, &versions[..=idx]).ok_or_else(|| "无法重建该版本".to_string())
 }
 
-/// 恢复：先把当前内容强制存为一版（恢复本身可撤销），再写入历史内容
+/// 恢复前先保存当前内容，再把恢复后的内容也记为新版本。
 #[tauri::command]
 fn restore_version(app: tauri::AppHandle, path: String, seq: u64) -> Result<String, String> {
     let root = vault_root(&app)?;
@@ -856,9 +1041,12 @@ fn restore_version(app: tauri::AppHandle, path: String, seq: u64) -> Result<Stri
     let idx = versions.iter().position(|v| v.seq == seq).ok_or("version not found")?;
     let content = reconstruct(&dir, &versions[..=idx]).ok_or_else(|| "无法重建该版本".to_string())?;
     let old = fs::read_to_string(&p).ok();
+    if let Some(current) = old.as_deref() {
+        record_snapshot(&root, &p, Some(current), current, "restore_before")?;
+    }
     fs::write(&p, &content).map_err(|e| e.to_string())?;
     note_self_write(&p);
-    maybe_snapshot(&root, &p, old.as_deref(), &content, true);
+    record_snapshot(&root, &p, old.as_deref(), &content, "restore")?;
     Ok(content)
 }
 
@@ -871,6 +1059,7 @@ fn main() {
             list_tree,
             read_doc,
             write_doc,
+            record_unsaved_snapshot,
             create_node,
             rename_node,
             move_node,
@@ -884,4 +1073,81 @@ fn main() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_paths() -> (PathBuf, PathBuf) {
+        let root = std::env::temp_dir().join(format!("inkvault-history-test-{}", unique_id()));
+        fs::create_dir_all(&root).unwrap();
+        let doc = root.join("note.md");
+        (root, doc)
+    }
+
+    #[test]
+    fn snapshots_keep_unsaved_checkpoints_and_saved_versions() {
+        let (root, doc) = test_paths();
+        let baseline = "alpha\r\n";
+        fs::write(&doc, baseline).unwrap();
+
+        assert!(record_snapshot(&root, &doc, Some(baseline), "alpha\r\nbeta\r\n", "saved").unwrap());
+        let dir = history_dir(&root, &doc);
+        let versions = read_versions(&dir);
+        assert_eq!(versions.len(), 2);
+        assert_eq!(reconstruct(&dir, &versions), Some("alpha\r\nbeta\r\n".to_string()));
+        assert_eq!(versions[1].added, 1);
+        assert_eq!(versions[1].line_count, 2);
+        assert_eq!(versions[1].kind, "saved");
+
+        let checkpoint = "alpha\r\nbeta\r\ngamma\r\n";
+        assert!(record_snapshot(&root, &doc, None, checkpoint, "unsaved").unwrap());
+        let versions = read_versions(&dir);
+        assert_eq!(reconstruct(&dir, &versions), Some(checkpoint.to_string()));
+        assert_eq!(versions.last().unwrap().kind, "unsaved");
+
+        fs::write(&doc, checkpoint).unwrap();
+        assert!(record_snapshot(&root, &doc, Some(baseline), checkpoint, "saved").unwrap());
+        let versions = read_versions(&dir);
+        assert_eq!(versions.last().unwrap().kind, "saved");
+        assert_eq!(versions.last().unwrap().added, 1);
+        assert_eq!(reconstruct(&dir, &versions), Some(checkpoint.to_string()));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn version_index_is_numeric_and_reconstruction_preserves_newline_changes() {
+        let (root, doc) = test_paths();
+        fs::write(&doc, "line").unwrap();
+        let dir = history_dir(&root, &doc);
+        fs::create_dir_all(&dir).unwrap();
+        for seq in 0..12 {
+            let content = if seq % 2 == 0 { "line" } else { "line\n" };
+            let version = VersionInfo {
+                seq,
+                time_ms: 1000 + seq,
+                added: 0,
+                removed: 0,
+                is_full: seq == 0,
+                kind: if seq == 0 { "baseline" } else { "saved" }.to_string(),
+                line_count: 1,
+                content_bytes: content.len() as u64,
+                ends_with_newline: content.ends_with('\n'),
+            };
+            if seq == 0 {
+                write_version_file(&dir, &version, content).unwrap();
+            } else {
+                let prev = if (seq - 1) % 2 == 0 { "line" } else { "line\n" };
+                let old_lines: Vec<String> = prev.lines().map(str::to_string).collect();
+                let new_lines: Vec<String> = content.lines().map(str::to_string).collect();
+                write_version_file(&dir, &version, &encode_delta(&line_diff(&old_lines, &new_lines))).unwrap();
+            }
+        }
+        let versions = read_versions(&dir);
+        assert_eq!(versions.iter().map(|v| v.seq).collect::<Vec<_>>(), (0..12).collect::<Vec<_>>());
+        assert_eq!(reconstruct(&dir, &versions), Some("line\n".to_string()));
+        fs::remove_dir_all(root).unwrap();
+    }
 }

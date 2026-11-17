@@ -136,6 +136,9 @@ export interface VersionInfo {
   added: number;
   removed: number;
   is_full: boolean;
+  kind: string;
+  line_count: number;
+  content_bytes: number;
 }
 
 export interface DiffLine {
@@ -145,6 +148,10 @@ export interface DiffLine {
 
 export function listVersions(path: string): Promise<VersionInfo[]> {
   return invoke<VersionInfo[]>('list_versions', { path });
+}
+
+export function recordUnsavedSnapshot(path: string, content: string): Promise<boolean> {
+  return invoke<boolean>('record_unsaved_snapshot', { path, content });
 }
 
 export function readVersionDiff(path: string, seq: number): Promise<DiffLine[]> {
