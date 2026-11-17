@@ -625,7 +625,7 @@ fn record_snapshot(
         previous.clone()
     };
     let old_lines = content_lines(&previous);
-    let new_lines = content_lines(new_content);
+    let new_lines = content_lines(content);
     let ops = line_diff(&old_lines, &new_lines);
     let (added, removed) = if summary_base == previous {
         count_ops(&ops)
@@ -639,9 +639,9 @@ fn record_snapshot(
         removed,
         is_full: false,
         kind: kind.to_string(),
-        line_count: new_content.lines().count() as u64,
-        content_bytes: new_content.len() as u64,
-        ends_with_newline: new_content.ends_with('\n'),
+        line_count: content.lines().count() as u64,
+        content_bytes: content.len() as u64,
+        ends_with_newline: content.ends_with('\n'),
     };
     let delta_name = format!("{delta_seq}-{time}.delta");
     write_version_file(&dir, &version, &encode_delta(&ops))?;
