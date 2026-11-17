@@ -4,6 +4,7 @@ import {
   desktopDelete,
   desktopListDocs,
   desktopMove,
+  recordUnsavedSnapshot,
   desktopRename,
   desktopWriteDoc,
   invalidateRootCache,
@@ -16,6 +17,7 @@ export type Phase = 'boot' | 'ready';
 export type SaveState = 'idle' | 'saving' | 'saved' | 'error';
 
 const AUTOSAVE_DELAY_MS = 1500;
+const UNSAVED_SNAPSHOT_DELAY_MS = 10 * 60 * 1000;
 
 interface AppState {
   phase: Phase;
@@ -68,6 +70,7 @@ function setupFsWatch() {
 const dirty = new Set<string>();
 let bootStarted = false; // StrictMode 会双执行启动副作用，防重复初始化（如双建欢迎文档）
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
+const unsavedSnapshotTimers = new Map<string, ReturnType<typeof setTimeout>>();
 let flushing = false;
 let flushQueued = false;
 
@@ -138,6 +141,37 @@ function scheduleAutosave() {
   saveTimer = setTimeout(() => {
     void useStore.getState().flush();
   }, AUTOSAVE_DELAY_MS);
+}
+
+function scheduleUnsavedSnapshot(id: string) {
+  if (unsavedSnapshotTimers.has(id)) return;
+  const timer = setTimeout(() => {
+    unsavedSnapshotTimers.delete(id);
+    const state = useStore.getState();
+    const doc = state.docs[id];
+    if (!dirty.has(id) || !doc || doc.isFolder) return;
+    const content = doc.content;
+    let failed = false;
+    void recordUnsavedSnapshot(id, content)
+      .then((created) => {
+        if (created) useStore.getState().showToast('已为未保存的编辑创建保护快照');
+      })
+      .catch(() => {
+        failed = true;
+        useStore.getState().showToast('未保存保护快照创建失败');
+      })
+      .finally(() => {
+        const latest = useStore.getState().docs[id];
+        if (dirty.has(id) && latest && (failed || latest.content !== content)) scheduleUnsavedSnapshot(id);
+      });
+  }, UNSAVED_SNAPSHOT_DELAY_MS);
+  unsavedSnapshotTimers.set(id, timer);
+}
+
+function clearUnsavedSnapshot(id: string) {
+  const timer = unsavedSnapshotTimers.get(id);
+  if (timer) clearTimeout(timer);
+  unsavedSnapshotTimers.delete(id);
 }
 
 export const useStore = create<AppState>()((set, get) => ({
@@ -283,6 +317,7 @@ export const useStore = create<AppState>()((set, get) => ({
     for (const i of ids) {
       delete remaining[i];
       dirty.delete(i);
+      clearUnsavedSnapshot(i);
     }
     let nextActive = activeId;
     if (activeId && ids.includes(activeId)) {
@@ -341,6 +376,7 @@ export const useStore = create<AppState>()((set, get) => ({
     if (!doc) return;
     set((s) => ({ docs: { ...s.docs, [id]: { ...doc, content } } }));
     dirty.delete(id);
+    clearUnsavedSnapshot(id);
   },
 
   updateContent: (id, content) => {
@@ -348,6 +384,7 @@ export const useStore = create<AppState>()((set, get) => ({
     if (!doc || doc.content === content) return;
     set((s) => ({ docs: { ...s.docs, [id]: { ...doc, content } } }));
     dirty.add(id);
+    scheduleUnsavedSnapshot(id);
     scheduleAutosave();
   },
 
@@ -364,15 +401,28 @@ export const useStore = create<AppState>()((set, get) => ({
     set({ saveState: 'saving' });
     try {
       const docsNow = get().docs;
-      for (const id of dirty) {
+      for (const id of [...dirty]) {
         const d = docsNow[id];
-        if (d) await desktopWriteDoc(id, d.content);
+        if (!d) {
+          dirty.delete(id);
+          continue;
+        }
+        const content = d.content;
+        await desktopWriteDoc(id, content);
+        if (get().docs[id]?.content === content) {
+          dirty.delete(id);
+          clearUnsavedSnapshot(id);
+        }
       }
-      dirty.clear();
-      set({ saveState: 'saved' });
-      setTimeout(() => {
-        if (useStore.getState().saveState === 'saved') set({ saveState: 'idle' });
-      }, 2000);
+      if (dirty.size > 0) {
+        set({ saveState: 'saving' });
+        scheduleAutosave();
+      } else {
+        set({ saveState: 'saved' });
+        setTimeout(() => {
+          if (useStore.getState().saveState === 'saved') set({ saveState: 'idle' });
+        }, 2000);
+      }
     } catch {
       set({ saveState: 'error' });
       get().showToast('写入本地文件失败，将自动重试');
