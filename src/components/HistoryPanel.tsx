@@ -8,6 +8,8 @@ import {
 import type { VersionInfo, DiffLine } from '../lib/desktop';
 import { useStore } from '../store/app';
 import { ConfirmDialog } from './ConfirmDialog';
+import { DateTimePicker } from './DateTimePicker';
+import { IconClock } from './Icons';
 
 function fmtTime(ms: number): string {
   const d = new Date(ms);
@@ -66,6 +68,7 @@ export function HistoryPanel({ docId, onClose }: { docId: string; onClose: () =>
   const [showFull, setShowFull] = useState(false);
   const [busy, setBusy] = useState(false);
   const [confirmRestore, setConfirmRestore] = useState(false);
+  const [jumpTo, setJumpTo] = useState<number | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -191,7 +194,13 @@ export function HistoryPanel({ docId, onClose }: { docId: string; onClose: () =>
                   onClick={() => setSelected(v)}
                 >
                   <span className="hi-main">
-                    <span className="hi-time" title={fullTime(v.time_ms)}>#{v.seq} · {fmtTime(v.time_ms)}</span>
+                    <span
+                    className="hi-time clickable"
+                    title={`${fullTime(v.time_ms)}（点击按时间跳转）`}
+                    onClick={() => setJumpTo(v.time_ms)}
+                  >
+                    <IconClock />#{v.seq} · {fmtTime(v.time_ms)}
+                  </span>
                     <span className="hi-stat">
                       {kindLabel(v.kind)} · {v.line_count} 行 · {fmtBytes(v.content_bytes)}
                       {!v.is_full && (
@@ -244,6 +253,19 @@ export function HistoryPanel({ docId, onClose }: { docId: string; onClose: () =>
               )}
             </div>
           </div>
+        )}
+        {jumpTo !== null && (
+          <DateTimePicker
+            initial={jumpTo}
+            onCancel={() => setJumpTo(null)}
+            onConfirm={(ms) => {
+              setJumpTo(null);
+              // 定位到不晚于所选时间的最近版本
+              const target = [...(versions ?? [])].filter((v) => v.time_ms <= ms).pop();
+              if (target) setSelected(target);
+              else useStore.getState().showToast('所选时间早于最早的历史版本');
+            }}
+          />
         )}
         {confirmRestore && selected && (
           <ConfirmDialog
