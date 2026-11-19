@@ -254,13 +254,15 @@ input[type='checkbox'] { width: 13px; height: 13px; padding: 0; margin: 0 7px 0 
 .cp-clear:hover { background: #f0f0f7; color: var(--danger); }
 
 /* 正文时间组件：时钟图标 + 可点击 */
-.editor-cm .cm-md-time {
+.editor-cm .cm-md-time,
+.markdown-body .cm-md-time {
   display: inline-flex; align-items: center; gap: 4px;
   color: var(--accent); cursor: pointer;
   border-radius: 5px; padding: 1px 4px; margin: 0 1px;
   background: var(--accent-soft); font-variant-numeric: tabular-nums;
 }
-.editor-cm .cm-md-time:hover { filter: brightness(0.95); }
+.editor-cm .cm-md-time:hover,
+.markdown-body .cm-md-time:hover { filter: brightness(0.95); }
 
 /* 编辑器内渲染的表格 */
 .cm-md-table { margin: 6px 0; overflow-x: auto; }
