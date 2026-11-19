@@ -4,7 +4,7 @@ import CodeMirror, { EditorSelection, EditorView, Prec, drawSelection, keymap } 
 import { markdown } from '@codemirror/lang-markdown';
 import { Table } from '@lezer/markdown';
 import { languages } from '@codemirror/language-data';
-import { livePreview, lineHasDecoration, posFromClick, resolveVisiblePos } from '../lib/livePreview';
+import { livePreview, posFromClick, resolveVisiblePos } from '../lib/livePreview';
 import { findImageFile, insertImageFile } from '../lib/assets';
 import { useStore, useStoreReveal } from '../store/app';
 import { IconLink, IconQuote, IconList, IconTask, IconTable, IconCode, IconCodeInline, IconImage, IconClock } from './Icons';
@@ -191,49 +191,6 @@ export function EditorPane({
       }),
       livePreview,
       EditorView.domEventHandlers({
-        // 点击落点：命中被隐藏的语法标记区域时，光标吸附到最近的可见位置
-        mousedown(event, view) {
-          if (event.button !== 0) return false;
-          // 三击快速选中整行（接管行与普通行统一支持）
-          if (event.detail >= 3) {
-            const pos = posFromClick(view, event.clientX, event.clientY) ?? view.posAtCoords({ x: event.clientX, y: event.clientY });
-            if (pos == null) return false;
-            const line = view.state.doc.lineAt(pos);
-            view.dispatch({ selection: { anchor: line.from, head: line.to } });
-            return true;
-          }
-          // 纯文本行：交给 CodeMirror 默认处理（保留拖动选择）
-          // 带渲染装饰的行：CM 的像素→位置映射不可靠（会落到行尾/别处），接管
-          const pos = posFromClick(view, event.clientX, event.clientY);
-          if (pos == null) return false;
-          const line = view.state.doc.lineAt(pos);
-          if (!lineHasDecoration(view, line.from, line.to)) return false;
-          const target = resolveVisiblePos(view, pos);
-          view.dispatch({ selection: { anchor: target } });
-          return true;
-        },
-        // 双击选中文本：选中点击位置所在的连续词语段（字母/数字/汉字，遇标点空白停止）
-        dblclick(event, view) {
-          // 双击图片 → 大图查看
-          const target = event.target as HTMLElement | null;
-          const img = target?.closest?.('.cm-md-image img');
-          if (img) {
-            useStore.getState().openImageViewer((img as HTMLImageElement).src);
-            return true;
-          }
-          const clicked = posFromClick(view, event.clientX, event.clientY);
-          if (clicked == null) return false;
-          const pos = resolveVisiblePos(view, clicked);
-          const line = view.state.doc.lineAt(pos);
-          const isWordChar = (ch: string | undefined) => !!ch && /[\p{L}\p{N}_]/u.test(ch);
-          let from = pos;
-          let to = pos;
-          while (from > line.from && isWordChar(line.text[from - 1 - line.from])) from--;
-          while (to < line.to && isWordChar(line.text[to - line.from])) to++;
-          if (from >= to) return false;
-          view.dispatch({ selection: { anchor: from, head: to } });
-          return true; // 阻止默认双击，避免与隐藏语法标记的选择计算互相干扰
-        },
         // 粘贴截图 / 拖拽图片文件 → 压缩后写入本地并插入
         paste(event, view) {
           const file = findImageFile(event.clipboardData);
@@ -337,6 +294,16 @@ export function EditorPane({
           onCreateEditor={(view) => {
             viewRef.current = view;
             (window as unknown as { __cmView?: EditorView }).__cmView = view; // 调试与自动化测试钩子
+            // 补丁 CM 的像素→位置映射：默认实现在「隐藏标记+行内装饰」混合行上会失效（落到行尾），
+            // 统一改走正向坐标搜索 + 隐藏区吸附。CM 的拖选/双击/三击等原生交互全部由此驱动，
+            // 补丁后这些行为自动恢复且定位准确
+            const original = view.posAtCoords.bind(view);
+            const patched = (coords: { x: number; y: number }): number | null => {
+              const pos = posFromClick(view, coords.x, coords.y);
+              if (pos != null) return resolveVisiblePos(view, pos);
+              return original(coords);
+            };
+            (view as unknown as Record<string, unknown>).posAtCoords = patched;
             // 编辑器（重）挂载时恢复光标位置并聚焦：模式切换后编辑器销毁重建，
             // 不主动聚焦会导致光标长时间不可见
             const saved = lastCursor.get(docId);
