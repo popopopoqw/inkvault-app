@@ -10,7 +10,7 @@ permissions:
 
 # 发版主题（随版本号一起更新，出现在 Release 标题里）
 env:
-  RELEASE_TOPIC: '修复保存误报与历史链自愈'
+  RELEASE_TOPIC: '修复拖选文本失效'
 
 jobs:
   build-desktop:
