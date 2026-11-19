@@ -571,6 +571,30 @@ fn write_version_file(
     Ok(())
 }
 
+/// 历史链损坏时以给定内容重建链头（清空旧版本文件），返回新链
+fn rebuild_history_head(dir: &Path, next_seq: u64, content: &str) -> Vec<VersionInfo> {
+    let _ = fs::remove_dir_all(dir);
+    if fs::create_dir_all(dir).is_err() {
+        return Vec::new();
+    }
+    let version = VersionInfo {
+        seq: next_seq,
+        time_ms: now_ms(),
+        added: 0,
+        removed: 0,
+        is_full: true,
+        kind: "compaction".to_string(),
+        line_count: content.lines().count() as u64,
+        content_bytes: content.len() as u64,
+        ends_with_newline: content.ends_with('\n'),
+    };
+    if write_version_file(dir, &version, content).is_ok() {
+        note_self_write(&dir.join(version_file_name(&version)));
+        return vec![version];
+    }
+    Vec::new()
+}
+
 /// 记录当前内容为增量快照。无变化时不生成重复版本。
 fn record_snapshot(
     root: &Path,
@@ -580,9 +604,18 @@ fn record_snapshot(
     kind: &str,
 ) -> Result<bool, String> {
     let dir = history_dir(root, doc);
-    let versions = read_versions(&dir);
+    let mut versions = read_versions(&dir);
     let previous = if let Some(last) = versions.last() {
-        reconstruct(&dir, &versions).ok_or_else(|| "无法重建最新历史版本".to_string())?
+        match reconstruct(&dir, &versions) {
+            Some(content) => content,
+            None => {
+                // 历史链损坏（旧格式 delta 重放失败等）：以当前内容重建链头，丢弃损坏链。
+                // 宁可丢历史也不能阻塞保存——否则每次保存都报「写入失败」
+                let next_seq = last.seq + 1;
+                versions = rebuild_history_head(&dir, next_seq, content);
+                return Ok(!versions.is_empty());
+            }
+        }
     } else {
         disk_before
             .map(str::to_string)
@@ -763,7 +796,9 @@ fn write_doc(app: tauri::AppHandle, path: String, content: String) -> Result<(),
     let r = fs::write(&p, &content).map_err(|e| e.to_string());
     if r.is_ok() {
         note_self_write(&p);
-        record_snapshot(&root, &p, old.as_deref(), &content, "saved")?;
+        // 文件已写入成功：快照失败不作为保存失败上报（链损坏会在下次保存时自愈），
+        // 否则会出现「写入本地文件失败」的持续误报
+        let _ = record_snapshot(&root, &p, old.as_deref(), &content, "saved");
     }
     r
 }
