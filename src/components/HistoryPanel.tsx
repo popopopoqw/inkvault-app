@@ -8,18 +8,37 @@ import {
 import type { VersionInfo, DiffLine } from '../lib/desktop';
 import { useStore } from '../store/app';
 import { ConfirmDialog } from './ConfirmDialog';
+import { DateTimePicker } from './DateTimePicker';
+import { IconClock } from './Icons';
 
 function fmtTime(ms: number): string {
   const d = new Date(ms);
   if (Number.isNaN(d.getTime())) return '时间未知';
-  return d.toLocaleString('zh-CN', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  });
+  const now = new Date();
+  const diffMs = now.getTime() - ms;
+  const hm = d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
+  const sameDay = (a: Date, b: Date) => a.toDateString() === b.toDateString();
+  if (diffMs < 60_000) return '刚刚';
+  if (diffMs < 3_600_000) return `${Math.floor(diffMs / 60_000)} 分钟前`;
+  if (sameDay(d, now)) return `今天 ${hm}`;
+  const yesterday = new Date(now.getTime() - 86_400_000);
+  if (sameDay(d, yesterday)) return `昨天 ${hm}`;
+  // 一周内：星期 + 时间
+  if (diffMs < 6 * 86_400_000) {
+    const weekday = ['日', '一', '二', '三', '四', '五', '六'][d.getDay()];
+    return `星期${weekday} ${hm}`;
+  }
+  if (d.getFullYear() === now.getFullYear()) {
+    return `${d.getMonth() + 1}月${d.getDate()}日 ${hm}`;
+  }
+  return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 ${hm}`;
+}
+
+/** 完整时间戳（悬停提示用） */
+function fullTime(ms: number): string {
+  const d = new Date(ms);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
 
 function fmtBytes(bytes: number): string {
@@ -49,6 +68,7 @@ export function HistoryPanel({ docId, onClose }: { docId: string; onClose: () =>
   const [showFull, setShowFull] = useState(false);
   const [busy, setBusy] = useState(false);
   const [confirmRestore, setConfirmRestore] = useState(false);
+  const [jumpTo, setJumpTo] = useState<number | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -174,7 +194,13 @@ export function HistoryPanel({ docId, onClose }: { docId: string; onClose: () =>
                   onClick={() => setSelected(v)}
                 >
                   <span className="hi-main">
-                    <span className="hi-time">#{v.seq} · {fmtTime(v.time_ms)}</span>
+                    <span
+                    className="hi-time clickable"
+                    title={`${fullTime(v.time_ms)}（点击按时间跳转）`}
+                    onClick={() => setJumpTo(v.time_ms)}
+                  >
+                    <IconClock />#{v.seq} · {fmtTime(v.time_ms)}
+                  </span>
                     <span className="hi-stat">
                       {kindLabel(v.kind)} · {v.line_count} 行 · {fmtBytes(v.content_bytes)}
                       {!v.is_full && (
@@ -227,6 +253,19 @@ export function HistoryPanel({ docId, onClose }: { docId: string; onClose: () =>
               )}
             </div>
           </div>
+        )}
+        {jumpTo !== null && (
+          <DateTimePicker
+            initial={jumpTo}
+            onCancel={() => setJumpTo(null)}
+            onConfirm={(ms) => {
+              setJumpTo(null);
+              // 定位到不晚于所选时间的最近版本
+              const target = [...(versions ?? [])].filter((v) => v.time_ms <= ms).pop();
+              if (target) setSelected(target);
+              else useStore.getState().showToast('所选时间早于最早的历史版本');
+            }}
+          />
         )}
         {confirmRestore && selected && (
           <ConfirmDialog

@@ -9,6 +9,7 @@ import { findImageFile, insertImageFile } from '../lib/assets';
 import { useStore, useStoreReveal } from '../store/app';
 import { IconLink, IconQuote, IconList, IconTask, IconTable, IconCode, IconCodeInline, IconImage, IconClock } from './Icons';
 import { ColorPicker } from './ColorPicker';
+import { DateTimePicker } from './DateTimePicker';
 
 function wrapSelection(view: EditorView, before: string, after: string) {
   const { state } = view;
@@ -149,6 +150,7 @@ export function EditorPane({
   const docIdRef = useRef(docId);
   docIdRef.current = docId;
   const [colorMenu, setColorMenu] = useState<'color' | 'background-color' | null>(null);
+  const [timeEdit, setTimeEdit] = useState<{ from: number; to: number; text: string } | null>(null);
 
   // 新建文档后自动聚焦，光标立即可见（否则焦点留在对话框按钮上，光标延迟出现）
   const focusDoc = useStore((s) => s.focusDoc);
@@ -191,6 +193,19 @@ export function EditorPane({
       }),
       livePreview,
       EditorView.domEventHandlers({
+        // 点击正文时间组件 → 打开日历修改
+        click(event, view) {
+          const el = (event.target as HTMLElement | null)?.closest?.('.cm-md-time') as HTMLElement | null;
+          if (!el) return false;
+          const from = Number(el.dataset.from);
+          const to = Number(el.dataset.to);
+          const text = view.state.sliceDoc(from, to);
+          if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(text)) {
+            setTimeEdit({ from, to, text });
+            return true;
+          }
+          return false;
+        },
         // 粘贴截图 / 拖拽图片文件 → 压缩后写入本地并插入
         paste(event, view) {
           const file = findImageFile(event.clipboardData);
@@ -282,6 +297,22 @@ export function EditorPane({
           }}
         />
       </div>
+      {timeEdit && (
+        <DateTimePicker
+          initial={new Date(timeEdit.text.replace('-', '/').replace('-', '/')).getTime()}
+          onCancel={() => setTimeEdit(null)}
+          onConfirm={(ms) => {
+            const d = new Date(ms);
+            const pad = (x: number) => String(x).padStart(2, '0');
+            const newText = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+            if (viewRef.current) {
+              viewRef.current.dispatch({ changes: { from: timeEdit.from, to: timeEdit.to, insert: newText } });
+              useStore.getState().showToast('时间已更新');
+            }
+            setTimeEdit(null);
+          }}
+        />
+      )}
       <div className="editor-cm">
         <CodeMirror
           value={content}
