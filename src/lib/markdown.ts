@@ -142,5 +142,50 @@ export function renderMarkdown(source: string): RenderResult {
     a.setAttribute('rel', 'noopener noreferrer');
   });
 
+  // 正文时间（YYYY-MM-DD HH:mm）：渲染为带时钟图标的胶囊，与编辑器内视觉一致（代码块内除外）
+  {
+    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        if (!/\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(node.nodeValue ?? '')) return NodeFilter.FILTER_REJECT;
+        let p: HTMLElement | null = node.parentElement;
+        while (p && p !== container) {
+          if (p.tagName === 'PRE' || p.tagName === 'CODE') return NodeFilter.FILTER_REJECT;
+          p = p.parentElement;
+        }
+        return NodeFilter.FILTER_ACCEPT;
+      },
+    });
+    const targets: Text[] = [];
+    let n: Node | null;
+    while ((n = walker.nextNode())) targets.push(n as Text);
+    for (const textNode of targets) {
+      const text = textNode.nodeValue ?? '';
+      const re = /\d{4}-\d{2}-\d{2} \d{2}:\d{2}/g;
+      const frag = document.createDocumentFragment();
+      let last = 0;
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(text))) {
+        if (m.index > last) frag.appendChild(document.createTextNode(text.slice(last, m.index)));
+        const pill = document.createElement('span');
+        pill.className = 'cm-md-time';
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('viewBox', '0 0 24 24');
+        svg.setAttribute('width', '13');
+        svg.setAttribute('height', '13');
+        svg.setAttribute('fill', 'none');
+        svg.setAttribute('stroke', 'currentColor');
+        svg.setAttribute('stroke-width', '1.8');
+        svg.setAttribute('stroke-linecap', 'round');
+        svg.innerHTML = '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/>';
+        pill.appendChild(svg);
+        pill.appendChild(document.createTextNode(m[0]));
+        frag.appendChild(pill);
+        last = m.index + m[0].length;
+      }
+      if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
+      textNode.replaceWith(frag);
+    }
+  }
+
   return { html: sanitizeHtml(container.innerHTML), toc };
 }
