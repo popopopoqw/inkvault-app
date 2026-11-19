@@ -68,6 +68,37 @@ class ImageWidget extends WidgetType {
   }
 }
 
+// 正文中的日期时间（YYYY-MM-DD HH:mm）：渲染为带时钟图标的可点击组件
+class TimeWidget extends WidgetType {
+  constructor(private text: string, private from: number, private to: number) {
+    super();
+  }
+  eq(other: TimeWidget) {
+    return other.text === this.text && other.from === this.from;
+  }
+  toDOM() {
+    const wrap = document.createElement('span');
+    wrap.className = 'cm-md-time';
+    wrap.dataset.from = String(this.from);
+    wrap.dataset.to = String(this.to);
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('width', '13');
+    svg.setAttribute('height', '13');
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('stroke', 'currentColor');
+    svg.setAttribute('stroke-width', '1.8');
+    svg.setAttribute('stroke-linecap', 'round');
+    svg.innerHTML = '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/>';
+    wrap.appendChild(svg);
+    wrap.appendChild(document.createTextNode(this.text));
+    return wrap;
+  }
+  ignoreEvent() {
+    return false; // 允许点击冒泡，由 EditorPane 弹日历
+  }
+}
+
 // 表格：整块渲染成 HTML 表格（光标进入显示源码）
 class TableWidget extends WidgetType {
   constructor(private src: string) {
@@ -288,6 +319,20 @@ function buildInlineDecorations(view: EditorView): DecorationSet {
       }
     },
   });
+
+  // 正文日期时间：YYYY-MM-DD HH:mm 渲染为带图标组件（光标行显示源码）
+  const timeRe = /\d{4}-\d{2}-\d{2} \d{2}:\d{2}/g;
+  for (let n = 1; n <= state.doc.lines; n++) {
+    const line = state.doc.line(n);
+    if (cursorLines.has(n)) continue;
+    timeRe.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = timeRe.exec(line.text))) {
+      const from = line.from + m.index;
+      const to = from + m[0].length;
+      ranges.push(Decoration.replace({ widget: new TimeWidget(m[0], from, to) }).range(from, to));
+    }
+  }
 
   // 文字/背景颜色：<span style="color|background-color: #xxx"> 标签隐藏、内容着色（光标行显示源码）
   const spanOpen = /<span style="(color|background-color):\s*(#[0-9a-fA-F]{3,8})\s*;?">/gi;
