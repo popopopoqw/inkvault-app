@@ -16,6 +16,9 @@ const ASSETS_DIR: &str = ".assets";
 const HISTORY_DIR: &str = ".history";
 /// 版本数超过该值时收敛链头（重放生成新全文，丢弃更老的一半）
 const VERSIONS_HARD_LIMIT: usize = 60;
+/// 同一文档两次「保存类」快照的最小间隔：编辑器自动保存防抖仅 1.5 秒，
+/// 不节流会导致连续编辑产生大量碎片版本（同一分钟多条记录）
+const SNAPSHOT_MIN_INTERVAL_MS: u64 = 10 * 60 * 1000;
 
 #[derive(Serialize, Clone)]
 pub struct Node {
@@ -622,6 +625,15 @@ fn record_snapshot(
             .or_else(|| fs::read_to_string(doc).ok())
             .unwrap_or_default()
     };
+    // 时间节流：saved 类快照距上一版不足间隔时跳过（restore/检查点收尾不节流），
+    // 依据版本文件自身时间戳而非内存状态，应用重启后依然有效
+    if kind == "saved" && versions.last().map(|v| v.kind != "unsaved").unwrap_or(true) {
+        if let Some(last) = versions.last() {
+            if now_ms().saturating_sub(last.time_ms) < SNAPSHOT_MIN_INTERVAL_MS {
+                return Ok(false);
+            }
+        }
+    }
     let save_after_checkpoint = kind == "saved"
         && versions.last().map(|version| version.kind == "unsaved").unwrap_or(false);
     if previous == content && !save_after_checkpoint {
