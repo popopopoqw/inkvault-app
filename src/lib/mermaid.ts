@@ -28,7 +28,10 @@ function loadMermaid() {
           textColor: '#26263a',
           fontSize: '14px',
         },
-        flowchart: { curve: 'basis', useMaxWidth: true },
+        // htmlLabels 关闭：strict 安全模式下 <br/> 会被 HTML 清洗截断（换行后内容丢失）；
+        // SVG text 模式把 <br/> 转为换行 tspan，内容完整且节点高度按实际行数计算
+        htmlLabels: false,
+        flowchart: { curve: 'basis', useMaxWidth: true, htmlLabels: false },
         sequence: { useMaxWidth: true },
       });
       return m.default;
